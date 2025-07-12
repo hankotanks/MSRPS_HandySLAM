@@ -16,21 +16,19 @@ public:
     PyScript(const std::string& moduleName);
     ~PyScript();
     template<typename... Args>
-    void call(const std::string& func, const std::string& fmt, Args&&... args) {
+    // returns truthy if call succeeded
+    bool call(const std::string& func, const std::string& fmt, Args&&... args) {
         PyObject* pyResult = PyObject_CallMethod(module_, func.c_str(), fmt.c_str(), std::forward<Args>(args)...);
         if(pyResult != NULL) {
-            if(PyObject_IsTrue(pyResult)) { 
-                Py_DECREF(pyResult);
-                UERROR("Failed to invoke function [%s] in [%s]:", func.c_str(), moduleName_.c_str());
-                PyErr_Print();
-                assert(false);
-            }
+            bool result = PyObject_IsTrue(pyResult);
             Py_DECREF(pyResult);
+            return result;
         } else {
             UERROR("Failed to invoke function [%s] in [%s]:", func.c_str(), moduleName_.c_str());
             PyErr_Print();
-            assert(false);
+            std::exit(1);
         }
+        return false;
     }
 };
 

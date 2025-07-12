@@ -57,7 +57,10 @@ add_subdirectory(rtabmap)
 
 add_executable(HandySLAM
     ${HANDY_DIR_SRC}/main.cpp
-    ${HANDY_DIR_SRC}/PyScript.cpp)
+    ${HANDY_DIR_SRC}/PyScript.cpp
+    ${HANDY_DIR_SRC}/Config.cpp
+    ${HANDY_DIR_SRC}/Dataloader.cpp
+    ${HANDY_DIR_SRC}/DataloaderStray.cpp)
 
 target_include_directories(HandySLAM PRIVATE
   ${HANDY_DIR_INC} 
@@ -75,6 +78,8 @@ target_link_libraries(HandySLAM
     ${PCL_LIBRARIES})
 
 target_compile_definitions(HandySLAM PRIVATE ${PCL_DEFINITIONS})
+target_compile_definitions(HandySLAM PRIVATE HANDY_W=1008)
+target_compile_definitions(HandySLAM PRIVATE HANDY_H=756)
 target_compile_definitions(HandySLAM PRIVATE HANDY_DIR_SCRIPTS="${HANDY_DIR_SCRIPTS}")
 target_compile_definitions(HandySLAM PRIVATE HANDY_DIR_PROMPTDA="${HANDY_DIR_PROMPTDA}")
 target_compile_definitions(HandySLAM PRIVATE HANDY_DIR_PY_ENV_PURE="${HANDY_DIR_PY_ENV_PURE}")
