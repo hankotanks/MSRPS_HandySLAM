@@ -49,7 +49,7 @@ namespace rtabmap {
 
         SensorData takeImage(SensorCaptureInfo* info = 0) {
             SensorData data = Camera::takeImage();
-            if(data.isValid()) data.setIMU(sensorData_[data.id()]);
+            if(data.isValid() && data.id() < sensorData_.size()) data.setIMU(sensorData_[data.id()]);
             return data;
         }
     };

@@ -12,11 +12,13 @@ private:
     fs::path pathOut_;
     bool forceRebuild_ = false;
     bool upscaleWithPromptDA_ = false;
+    bool savePoints_ = false;
 public:
     Config(int argc, char* argv[]);
     std::pair<fs::path, fs::path> getPaths() const { return std::make_pair(pathData_, pathOut_); }
     bool forceRebuild() const { return forceRebuild_; }
     bool upscaleWithPromptDA() const { return upscaleWithPromptDA_; }
+    bool savePoints() const { return savePoints_; }
 };
 
 #endif // CONFIG_H

@@ -15,7 +15,8 @@ Config::Config(int argc, char* argv[]) {
         clipp::option("-o", "--out").doc("species output directory, defaults to data path") &
             clipp::value("out-path", pathOut),
         clipp::option("-f", "--force").set(forceRebuild_).doc("force a rebuild of the temp folder"),
-        clipp::option("-u", "--upscale").set(upscaleWithPromptDA_).doc("upscale imagery using PromptDA")
+        clipp::option("-u", "--upscale").set(upscaleWithPromptDA_).doc("upscale imagery using PromptDA"),
+        clipp::option("-s", "--save").set(savePoints_).doc("save generated point cloud as PLY")
     );
 
     if(!clipp::parse(argc, argv, cli)) {

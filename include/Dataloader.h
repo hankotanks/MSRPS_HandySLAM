@@ -22,6 +22,7 @@ public:
     virtual void process() const = 0;
     // initializer (invokes Dataloader::process and can't be overriden)
     virtual void init() final { 
+        if(!rebuild_) return;
         UINFO("Began preprocessing scene data.");
         process(); 
         UINFO("Finished preprocessing scene data."); }

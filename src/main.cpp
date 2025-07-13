@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <rtabmap/core/Rtabmap.h>
 #include <rtabmap/core/Parameters.h>
 #include <rtabmap/core/Odometry.h>
@@ -5,6 +7,7 @@
 #include <rtabmap/core/util3d.h>
 #include <rtabmap/utilite/ULogger.h>
 
+#include "CloudStream.h"
 #include "Config.h"
 #include "DataloaderStray.h"
 #include "CameraHandy.h"
@@ -33,17 +36,21 @@ int main(int argc, char* argv[]) {
     rtabmap::Rtabmap rtabmap;
     rtabmap.init(params);
 
+    CloudStream out(cfg, "out");
+
     rtabmap::SensorData cameraData = camera.takeImage();
     while(cameraData.isValid()) {
         rtabmap::Transform pose = odom->process(cameraData, &info);
-
         if(rtabmap.process(cameraData, pose)) {
             if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
         }
+        
+        out.write(cameraData);
 
         cameraData = camera.takeImage();
     }
-    delete odom;
+
+    UINFO("Finished processing [%d] frames.", cameraData.id());
     
     return 0;
 }
