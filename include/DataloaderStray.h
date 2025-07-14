@@ -8,11 +8,10 @@ class DataloaderStray : public Dataloader {
 private:
     bool upscaleWithPromptDA_;
 public:
-    DataloaderStray(const Config& cfg) : Dataloader(
-        std::get<0>(cfg.getPaths()), 
-        std::get<1>(cfg.getPaths()) / "temp", 
-        cfg.forceRebuild()), upscaleWithPromptDA_(cfg.upscaleWithPromptDA()) { /* STUB */ };
-    virtual void process() const override;
+    DataloaderStray(const Config& cfg) : 
+        Dataloader(cfg), 
+        upscaleWithPromptDA_(cfg.upscaleWithPromptDA()) { /* STUB */ };
+    virtual void process() override;
 };
 
 #endif // DATALOADER_STRAY_H
