@@ -15,7 +15,10 @@ Dataloader::Dataloader(const fs::path& pathData, const fs::path& pathTemp, const
     pathDepth_ = pathTemp_ / "depth";
 
     rebuild_ = !Dataloader::validate(true) || forceRebuild;
-    if(!rebuild_) return;
+    if(!rebuild_) {
+        if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
+        return;
+    }
 
     if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
     fs::create_directories(pathTemp_);

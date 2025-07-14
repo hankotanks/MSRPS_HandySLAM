@@ -2,7 +2,6 @@
 #define DATALOADER_H
 
 #include <filesystem>
-#include <vector>
 
 #include <rtabmap/utilite/ULogger.h>
 
@@ -28,6 +27,7 @@ public:
         UINFO("Finished preprocessing scene data."); }
     // getters
     fs::path getPathData() const { return pathData_; }
+    fs::path getPathDB() const { return pathTemp_ / "temp.db"; }
     fs::path getPathIMU() const { return (pathTemp_ / "imu.csv"); }
     fs::path getPathRGB() const { return pathRGB_; }
     fs::path getPathDepth() const { return pathDepth_; }
