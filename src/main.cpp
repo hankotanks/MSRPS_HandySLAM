@@ -13,28 +13,33 @@
 #include "DataloaderStray.h"
 #include "CameraHandy.h"
 
+void run(const Config&, const Dataloader&);
+
 int main(int argc, char* argv[]) {
     ULogger::setType(ULogger::kTypeConsole);
-	  ULogger::setLevel(ULogger::kInfo);
+	ULogger::setLevel(ULogger::kInfo);
 
     Config cfg(argc, argv);
 
     const auto [pathData, pathOut] = cfg.getPaths();
 
     DataloaderStray data(cfg);
-    data.init();
-    data.validate();
+    if(data.init() && data.validate()) run(cfg, data);
+    
+    return 0;
+}
 
+void run(const Config& cfg, const Dataloader& data) {
     rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
-	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRegStrategy(), "0"));
-	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
-	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
     
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemNotLinkedNodesKept(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemInitWMWithAllNodes(), "false"));
@@ -106,6 +111,4 @@ int main(int argc, char* argv[]) {
     }
    
     UINFO("Finished processing [%d] frames.", cameraData.id());
-    
-    return 0;
 }

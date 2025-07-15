@@ -26,7 +26,6 @@ execute_process(
   OUTPUT_VARIABLE HANDY_DIR_PY_ENV_PLAT
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-
 option(WITH_QT             "Include Qt support"                     OFF)
 option(WITH_FREENECT       "Include Freenect support"               OFF)
 option(WITH_FREENECT2      "Include Freenect2 support"              OFF)
@@ -37,7 +36,6 @@ option(WITH_OPENNI2        "Include OpenNI2 support"                OFF)
 option(WITH_DC1394         "Include dc1394 support"                 OFF)
 option(WITH_G2O            "Include g2o support"                    OFF)
 option(WITH_GTSAM          "Include GTSAM support"                  OFF)
-option(WITH_TORO           "Include TORO support"                   ON)
 option(WITH_MRPT           "Include MRPT support"                   OFF)
 option(WITH_VERTIGO        "Include Vertigo support"                OFF)
 option(WITH_POINTMATCHER   "Include libpointmatcher support"        OFF)
@@ -60,7 +58,8 @@ add_executable(HandySLAM
     ${HANDY_DIR_SRC}/PyScript.cpp
     ${HANDY_DIR_SRC}/Config.cpp
     ${HANDY_DIR_SRC}/Dataloader.cpp
-    ${HANDY_DIR_SRC}/DataloaderStray.cpp)
+    ${HANDY_DIR_SRC}/DataloaderStray.cpp
+    ${HANDY_DIR_SRC}/DataloaderScanNet.cpp)
 
 target_include_directories(HandySLAM PRIVATE
   ${HANDY_DIR_INC} 

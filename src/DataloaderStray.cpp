@@ -1,6 +1,7 @@
 #include "DataloaderStray.h"
 
 #include <filesystem>
+#include <optional>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -14,7 +15,9 @@
 
 namespace fs = std::filesystem;
 
-rtabmap::Transform parseCameraMatrix(const fs::path& pathCameraMatrix) {
+std::optional<rtabmap::Transform> parseCameraMatrix(
+    const fs::path& pathCameraMatrix
+) {
     lazycsv::parser<lazycsv::mmap_source,   
         lazycsv::has_header<false>,
         lazycsv::delimiter<','>,
@@ -28,14 +31,18 @@ rtabmap::Transform parseCameraMatrix(const fs::path& pathCameraMatrix) {
     for(const auto row : parser) {
         const auto [fst, snd, thd] = row.cells(0, 1, 2);
         intrinsics(rowCount, 0) = std::strtof(fst.raw().data(), &temp);
+        if(temp == fst.raw().data()) return std::nullopt;
         intrinsics(rowCount, 1) = std::strtof(snd.raw().data(), &temp);
-        intrinsics(rowCount, 2) = std::strtof(thd.raw().data(), &temp); rowCount++;
+        if(temp == snd.raw().data()) return std::nullopt;
+        intrinsics(rowCount, 2) = std::strtof(thd.raw().data(), &temp); 
+        if(temp == thd.raw().data()) return std::nullopt;
+        rowCount++;
     }
 
     return intrinsics;
 }
 
-std::vector<rtabmap::IMUEvent> parseEvents(
+std::vector<rtabmap::IMUEvent> parseStrayEvents(
     const fs::path& pathOdometry, 
     const fs::path& pathIMU
 ) {
@@ -85,21 +92,39 @@ std::vector<rtabmap::IMUEvent> parseEvents(
     return events;
 }
 
-void DataloaderStray::process() {
-    rtabmap::Transform intrinsics = parseCameraMatrix(Dataloader::getPathData() / "camera_matrix.csv");
-
+bool DataloaderStray::process() {
     // RGB
-    const cv::Size originalColorSize = Dataloader::splitColorVideoAndScale(Dataloader::getPathData() / "rgb.mp4");
+    const fs::path pathColorIn = Dataloader::getPathData() / "rgb.mp4";
+    const cv::Size originalColorSize = Dataloader::splitColorVideoAndScale(pathColorIn);
+    if(originalColorSize.empty()) {
+        UERROR("Failed to split RGB frames [%s].", pathColorIn.c_str());
+        return false;
+    }
+    // DEPTH
+    const fs::path pathDepthIn = Dataloader::getPathData() / "depth";
+    if(!Dataloader::upscaleDepth(pathDepthIn)) {
+        UERROR("Failed to upscale depth [%s].", pathDepthIn.c_str());
+        return false;
+    }
 
     // CALIBRATION
-    Dataloader::writeCalibration(intrinsics, originalColorSize);
-
-    // DEPTH
-    Dataloader::upscaleDepth(Dataloader::getPathData() / "depth");
+    const fs::path pathCameraMatrix = Dataloader::getPathData() / "camera_matrix.csv";
+    auto intrinsics = parseCameraMatrix(pathCameraMatrix);
+    if(!intrinsics) {
+        UERROR("Failed to parse camera matrix [%s].", pathCameraMatrix.c_str());
+        return false;
+    }
+    Dataloader::writeCalibration(*intrinsics, originalColorSize);
 
     // TIMESTAMPS AND IMU
-    std::vector<rtabmap::IMUEvent> events = parseEvents(
-        Dataloader::getPathData() / "odometry.csv", 
-        Dataloader::getPathData() / "imu.csv");
+    const fs::path pathOdometry = Dataloader::getPathData() / "odometry.csv";
+    const fs::path pathIMU = Dataloader::getPathData() / "imu.csv";
+    std::vector<rtabmap::IMUEvent> events = parseStrayEvents(pathOdometry, pathIMU);
+    if(events.empty()) {
+        UERROR("Failed to parse odometry [%s] or IMU data [%s].", pathOdometry.c_str(), pathIMU.c_str());
+        return false;
+    }
     Dataloader::storeEvents(std::move(events));
+
+    return true;
 }

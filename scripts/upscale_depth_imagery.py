@@ -26,6 +26,5 @@ def main(path_color: str, path_depth: str, path_out: str, width: int):
         curr_color, curr_depth = curr_color.to(DEVICE), curr_depth.to(DEVICE)
         pred_depth = model.predict(curr_color, curr_depth)
         save_depth(pred_depth.detach().cpu(), output_path=os.path.join(path_out, os.path.basename(files_depth[frame_idx])), save_vis=False)
-    
-    return True
+        
     

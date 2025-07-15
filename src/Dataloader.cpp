@@ -10,11 +10,13 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 
+#include <rtabmap/core/IMU.h>
 #include <rtabmap/utilite/ULogger.h>
+
+#include "ext/lazycsv.h"
 
 #include "Config.h"
 #include "PyScript.h"
-#include "rtabmap/core/IMU.h"
 
 namespace fs = std::filesystem;
 
@@ -28,7 +30,11 @@ Dataloader::Dataloader(const Config& cfg) :
     rebuild_ |= !Dataloader::validate(true); 
       
     if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
-    if(!rebuild_) return;
+    if(!rebuild_) {
+        if(Dataloader::parseEvents()) invalid_ = true;
+        return;
+    }
+
     if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
 
     fs::create_directories(pathTemp_);
@@ -88,6 +94,12 @@ size_t validateLineCount(const fs::path& path, const bool hasHeader = false) {
 
 // returns truthy if the data at pathTemp_ is valid
 bool Dataloader::validate(const bool silent) const {
+    if(invalid_) {
+        if(!silent) UERROR("Failed to parse IMU data [%s] and timestamps [%s].",
+            Dataloader::getPathIMU().c_str(), Dataloader::getPathStamps().c_str());
+        return false;
+    }
+
     if(!fs::exists(pathTemp_)) {
         if(!silent) UERROR("Skipping validation, temp folder does not exist [%s].", 
             pathTemp_.c_str());
@@ -128,7 +140,7 @@ bool Dataloader::validate(const bool silent) const {
         return false;
     }
 
-    const size_t imuCount = validateLineCount(Dataloader::getPathStamps());
+    const size_t imuCount = validateLineCount(Dataloader::getPathIMU());
     if(imuCount != imageCountRGB) {
         if(!silent) UERROR("Imagery count [%zu] does not match number of IMU entries [%zu] in [%s].", 
             imageCountRGB, imuCount, Dataloader::getPathIMU().c_str());
@@ -186,23 +198,24 @@ void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut
     }
 }
 
-void upscaleDepthPromptDA(
+bool upscaleDepthPromptDA(
     const fs::path& pathRGB, 
     const fs::path& pathDepthIn, 
     const fs::path& pathDepthOut
 ) {
-    PyScript("upscale_depth_imagery").call("main", "sssi", 
+    return PyScript("upscale_depth_imagery").call("main", "sssi", 
         pathRGB.c_str(), 
         pathDepthIn.c_str(), 
         pathDepthOut.c_str(), HANDY_W);
 }
 
-void Dataloader::upscaleDepth(const fs::path& pathDepthIn) const {
-    if(upscale_) upscaleDepthPromptDA(
+bool Dataloader::upscaleDepth(const fs::path& pathDepthIn) const {
+    if(upscale_) return upscaleDepthPromptDA(
         Dataloader::getPathColor(), 
         pathDepthIn, 
         Dataloader::getPathDepth());
     else upscaleDepthNaive(pathDepthIn, Dataloader::getPathDepth());
+    return true;
 }
 
 void Dataloader::writeCalibration(
@@ -279,4 +292,48 @@ void Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
 
     streamIMU.close();
     streamStamps.close();
+}
+
+bool Dataloader::parseEvents() {
+    lazycsv::parser<lazycsv::mmap_source,
+        lazycsv::has_header<false>,
+        lazycsv::delimiter<','>,
+        lazycsv::quote_char<'"'>,
+        lazycsv::trim_chars<' ', '\t'>> imuParser { Dataloader::getPathIMU() };
+    rtabmap::IMU imuCurrent;
+
+    std::ifstream stampsStream(Dataloader::getPathStamps());
+    double stampCurrent;
+
+    char* temp;
+
+    double lx, ly, lz, ax, ay, az;
+    for(const auto row : imuParser) {
+        if(!(stampsStream >> stampCurrent)) return false;
+
+        const auto raw = row.cells(0, 1, 2, 3, 4, 5);
+        lx = std::strtof(raw[0].raw().data(), &temp);
+        if(temp == raw[0].raw().data()) return false;
+        ly = std::strtof(raw[1].raw().data(), &temp);
+        if(temp == raw[1].raw().data()) return false;
+        lz = std::strtof(raw[2].raw().data(), &temp);
+        if(temp == raw[2].raw().data()) return false;
+        ax = std::strtof(raw[3].raw().data(), &temp);
+        if(temp == raw[3].raw().data()) return false;
+        ay = std::strtof(raw[4].raw().data(), &temp);
+        if(temp == raw[4].raw().data()) return false;
+        az = std::strtof(raw[5].raw().data(), &temp);
+        if(temp == raw[5].raw().data()) return false;
+
+        imuCurrent = rtabmap::IMU(
+            cv::Vec3d(ax, ay, az),
+            cv::Mat::eye(3, 3, CV_64F),
+            cv::Vec3d(lx, ly, lz),
+            cv::Mat::eye(3, 3, CV_64F)
+        );
+
+        events_.emplace_back(imuCurrent, stampCurrent); 
+    }
+    
+    return true;
 }
