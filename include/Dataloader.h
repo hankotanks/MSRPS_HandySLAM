@@ -37,6 +37,7 @@ public:
     void storeEvents(std::vector<rtabmap::IMUEvent>&& events);
     // getters
     fs::path getPathData() const { return pathData_; }
+    fs::path getPathDB() const { return (pathTemp_ / "temp.db"); }
     fs::path getPathIMU() const { return (pathTemp_ / "imu.csv"); }
     fs::path getPathColor() const { return pathColor_; }
     fs::path getPathDepth() const { return pathDepth_; }

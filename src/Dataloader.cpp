@@ -24,10 +24,12 @@ Dataloader::Dataloader(const Config& cfg) :
     pathDepth_(std::get<1>(cfg.getPaths()) / "temp" / "depth"),
     upscale_(cfg.upscaleWithPromptDA()),
     rebuild_(cfg.forceRebuild()) {
-    rebuild_ |= !Dataloader::validate(true);    
-    if(!rebuild_) return;
+    rebuild_ |= !Dataloader::validate(true); 
 
+    if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
+    if(!rebuild_) return;
     if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
+    
     fs::create_directories(pathTemp_);
     fs::create_directories(pathColor_);
     fs::create_directories(pathDepth_);

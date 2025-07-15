@@ -5,6 +5,7 @@
 #include <limits>
 #include <filesystem>
 
+#include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
 #include <pcl/impl/point_types.hpp>
 
@@ -19,7 +20,7 @@ class CloudStream {
 private:
     size_t count_ = 0;
     size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
-    std::fstream* file_ = nullptr;
+    std::fstream file_;
     fs::path filePath_;
     std::streampos countPos_;
 public:
@@ -28,58 +29,66 @@ public:
 
         const auto [_, pathOut] = cfg.getPaths();
         filePath_ = pathOut / (cloudName + ".ply");
-        file_ = new std::fstream(filePath_, std::ios::in | std::ios::out | 
+        file_ = std::fstream(filePath_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);
 
-        (*file_) << "ply" << std::endl;
-        (*file_) << "format binary_little_endian 1.0\n" << std::endl;
-        (*file_) << "element vertex ";
-        countPos_ = file_->tellp();
-        for(size_t i = 0; i < countDigits_; ++i) (*file_) << " ";
-        (*file_) << std::endl;
-        (*file_) << "property float x" << std::endl;
-        (*file_) << "property float y" << std::endl;
-        (*file_) << "property float z" << std::endl;
-        (*file_) << "property uchar red" << std::endl;
-        (*file_) << "property uchar green" << std::endl;
-        (*file_) << "property uchar blue" << std::endl;
-        (*file_) << "end_header" << std::endl;
+        file_ << "ply" << std::endl;
+        file_ << "format binary_little_endian 1.0" << std::endl;
+        file_ << "element vertex ";
+        countPos_ = file_.tellp();
+        for(size_t i = 0; i < countDigits_; ++i) file_ << " ";
+        file_ << std::endl;
+        file_ << "property float x" << std::endl;
+        file_ << "property float y" << std::endl;
+        file_ << "property float z" << std::endl;
+        file_ << "property uchar red" << std::endl;
+        file_ << "property uchar green" << std::endl;
+        file_ << "property uchar blue" << std::endl;
+        file_ << "end_header" << std::endl;
     }
 
     ~CloudStream() {
-        if(file_ == nullptr) return;
-
         UINFO("Making final modifications to output point cloud [%s].", filePath_.c_str());
 
-        file_->clear();
-        file_->seekp(countPos_);
+        file_.clear();
+        file_.seekp(countPos_);
         std::string countStr = std::to_string(count_);
-        if(countStr.size() < countDigits_) countStr.append(countDigits_ - countStr.size(), ' ');
-        file_->write(countStr.c_str(), countDigits_);
-        file_->close();
-        delete file_;
+        if(countStr.size() < countDigits_) countStr = std::string(countDigits_ - countStr.size(), '0') + countStr;
+        file_.write(countStr.c_str(), countDigits_);
+        file_.close();
     }
 
-    void write(const rtabmap::SensorData& sensorData) {
-        if(file_ == nullptr || !sensorData.isValid()) return;
+    void operator()(const rtabmap::SensorData& sensorData, const rtabmap::Transform& pose) {
+        if(!sensorData.isValid()) return;
 
         UINFO("Writing frame to output point cloud [%s].", filePath_.c_str());
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = \
-            rtabmap::util3d::cloudsRGBFromSensorData(sensorData)[0];
+        std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> cloudList = \
+            rtabmap::util3d::cloudsRGBFromSensorData(sensorData);
 
-        for(const auto& point : cloud->points) {
-            file_->write(reinterpret_cast<const char*>(&point.x), sizeof(float));
-            file_->write(reinterpret_cast<const char*>(&point.y), sizeof(float));
-            file_->write(reinterpret_cast<const char*>(&point.z), sizeof(float));
-
-            file_->write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
-            file_->write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
-            file_->write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
+        if(cloudList.empty()) {
+            UINFO("Frame is empty, skipping.");
+            return;
         }
-        file_->flush();
 
-        count_ += cloud->points.size();
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudList[0];
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudGlobal(new pcl::PointCloud<pcl::PointXYZRGB>);
+        cloudGlobal->reserve(cloud->size());
+        
+        pcl::transformPointCloud(*cloud, *cloudGlobal, pose.toEigen3f());
+
+        for(const auto& point : cloudGlobal->points) {
+            file_.write(reinterpret_cast<const char*>(&point.x), sizeof(float));
+            file_.write(reinterpret_cast<const char*>(&point.y), sizeof(float));
+            file_.write(reinterpret_cast<const char*>(&point.z), sizeof(float));
+
+            file_.write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
+            file_.write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
+            file_.write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
+        }
+        file_.flush();
+
+        count_ += cloudGlobal->points.size();
 
         UINFO("Output point cloud [%s] now has [%zu] points.", filePath_.c_str(), count_);      
     }

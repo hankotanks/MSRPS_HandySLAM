@@ -1,8 +1,6 @@
 #include "DataloaderStray.h"
 
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
