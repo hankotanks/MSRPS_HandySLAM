@@ -4,6 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <filesystem>
+#include <iostream>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -29,7 +30,7 @@ Dataloader::Dataloader(const Config& cfg) :
     if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
     if(!rebuild_) return;
     if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
-    
+
     fs::create_directories(pathTemp_);
     fs::create_directories(pathColor_);
     fs::create_directories(pathDepth_);
@@ -208,17 +209,16 @@ void Dataloader::writeCalibration(
     const rtabmap::Transform& intrinsics, 
     const cv::Size& originalColorSize
 ) const {
-    auto mat = intrinsics.toEigen3d().rotation();
-
     double width_scalar = \
         static_cast<double>(HANDY_W) / static_cast<double>(originalColorSize.width);
     double height_scalar = \
         static_cast<double>(HANDY_H) / static_cast<double>(originalColorSize.height);
 
-    mat(0, 0) *= width_scalar;
-    mat(0, 2) *= width_scalar;
-    mat(1, 1) *= height_scalar;
-    mat(1, 2) *= height_scalar;
+    double fx, fy, cx, cy;
+    fx = intrinsics(0, 0) * width_scalar;
+    fy = intrinsics(1, 1) * height_scalar;
+    cx = intrinsics(0, 2) * width_scalar;
+    cy = intrinsics(1, 2) * height_scalar;
 
     std::ofstream file(Dataloader::getPathCalibrationFile());
     file << "%YAML:1.0" << std::endl;
@@ -230,9 +230,9 @@ void Dataloader::writeCalibration(
     file << "   rows: 3" << std::endl;
     file << "   cols: 3" << std::endl;
     file << "   data: [ ";
-    file << mat(0, 0) << ", " << mat(0, 1) << ", " << mat(0, 2) << ", ";
-    file << mat(1, 0) << ", " << mat(1, 1) << ", " << mat(1, 2) << ", ";
-    file << mat(2, 0) << ", " << mat(2, 1) << ", " << mat(2, 2) << " ]" << std::endl;
+    file << fx  << ", " << 0.0 << ", " << cx  << ", ";
+    file << 0.0 << ", " << fy  << ", " << cy  << ", ";
+    file << 0.0 << ", " << 0.0 << ", " << 0.0 << " ]" << std::endl;
     file << "local_transform:" << std::endl;
     file << "   rows: 3" << std::endl;
     file << "   cols: 4" << std::endl;
@@ -252,9 +252,9 @@ void Dataloader::writeCalibration(
     file << "   rows: 3" << std::endl;
     file << "   cols: 4" << std::endl;
     file << "   data: [ ";
-    file << mat(0, 0) << ", " << mat(0, 1) << ", " << mat(0, 2) << ", 0.0, ";
-    file << mat(1, 0) << ", " << mat(1, 1) << ", " << mat(1, 2) << ", 0.0, ";
-    file << mat(2, 0) << ", " << mat(2, 1) << ", " << mat(2, 2) << ", 0.0 ]" << std::endl;
+    file << fx  << ", " << 0.0 << ", " << cx  << ", 0.0, ";
+    file << 0.0 << ", " << fy  << ", " << cy  << ", 0.0, ";
+    file << 0.0 << ", " << 0.0 << ", " << 0.0 << ", 0.0 ]" << std::endl;
     file.close();
 }
 

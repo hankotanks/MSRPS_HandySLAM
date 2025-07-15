@@ -86,15 +86,16 @@ std::vector<rtabmap::IMUEvent> parseEvents(
 }
 
 void DataloaderStray::process() {
+    rtabmap::Transform intrinsics = parseCameraMatrix(Dataloader::getPathData() / "camera_matrix.csv");
+
     // RGB
     const cv::Size originalColorSize = Dataloader::splitColorVideoAndScale(Dataloader::getPathData() / "rgb.mp4");
 
+    // CALIBRATION
+    Dataloader::writeCalibration(intrinsics, originalColorSize);
+
     // DEPTH
     Dataloader::upscaleDepth(Dataloader::getPathData() / "depth");
-
-    // CALIBRATION
-    rtabmap::Transform intrinsics = parseCameraMatrix(Dataloader::getPathData() / "camera_matrix.csv");
-    Dataloader::writeCalibration(intrinsics, originalColorSize);
 
     // TIMESTAMPS AND IMU
     std::vector<rtabmap::IMUEvent> events = parseEvents(
