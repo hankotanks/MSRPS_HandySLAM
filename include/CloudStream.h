@@ -74,7 +74,7 @@ public:
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudList[0];
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudGlobal(new pcl::PointCloud<pcl::PointXYZRGB>);
         cloudGlobal->reserve(cloud->size());
-        
+      
         pcl::transformPointCloud(*cloud, *cloudGlobal, pose.toEigen3f());
 
         for(const auto& point : cloudGlobal->points) {

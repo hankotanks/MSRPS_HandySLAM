@@ -26,7 +26,7 @@ Dataloader::Dataloader(const Config& cfg) :
     upscale_(cfg.upscaleWithPromptDA()),
     rebuild_(cfg.forceRebuild()) {
     rebuild_ |= !Dataloader::validate(true); 
-
+      
     if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
     if(!rebuild_) return;
     if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);

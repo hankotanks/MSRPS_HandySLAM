@@ -2,7 +2,6 @@
 #define DATALOADER_H
 
 #include <filesystem>
-#include <vector>
 
 #include <rtabmap/core/IMU.h>
 #include <rtabmap/core/Transform.h>

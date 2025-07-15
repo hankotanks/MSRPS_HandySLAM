@@ -15,7 +15,7 @@
 
 int main(int argc, char* argv[]) {
     ULogger::setType(ULogger::kTypeConsole);
-	ULogger::setLevel(ULogger::kInfo);
+	  ULogger::setLevel(ULogger::kInfo);
 
     Config cfg(argc, argv);
 
@@ -28,13 +28,13 @@ int main(int argc, char* argv[]) {
     rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRegStrategy(), "0"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
     
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemNotLinkedNodesKept(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemInitWMWithAllNodes(), "false"));
