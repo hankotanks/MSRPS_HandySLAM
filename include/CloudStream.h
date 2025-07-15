@@ -33,7 +33,7 @@ public:
             std::ios::binary | std::ios::trunc);
 
         file_ << "ply" << std::endl;
-        file_ << "format binary_little_endian 1.0\n" << std::endl;
+        file_ << "format binary_little_endian 1.0" << std::endl;
         file_ << "element vertex ";
         countPos_ = file_.tellp();
         for(size_t i = 0; i < countDigits_; ++i) file_ << " ";
@@ -53,7 +53,7 @@ public:
         file_.clear();
         file_.seekp(countPos_);
         std::string countStr = std::to_string(count_);
-        if(countStr.size() < countDigits_) countStr.append(countDigits_ - countStr.size(), ' ');
+        if(countStr.size() < countDigits_) countStr = std::string(countDigits_ - countStr.size(), '0') + countStr;
         file_.write(countStr.c_str(), countDigits_);
         file_.close();
     }
@@ -72,10 +72,9 @@ public:
         }
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudList[0];
-
-        // Transform to global pose
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudGlobal(new pcl::PointCloud<pcl::PointXYZRGB>);
         cloudGlobal->reserve(cloud->size());
+      
         pcl::transformPointCloud(*cloud, *cloudGlobal, pose.toEigen3f());
 
         for(const auto& point : cloudGlobal->points) {

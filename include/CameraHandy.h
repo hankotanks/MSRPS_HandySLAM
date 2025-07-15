@@ -17,7 +17,7 @@ namespace rtabmap {
         std::vector<IMU> sensorData_;
     public:
         CameraHandy(const Dataloader& data) : CameraRGBDImages(
-            data.getPathRGB().string(), 
+            data.getPathColor().string(), 
             data.getPathDepth().string()) {
             const auto [pathCalibration, cameraName] = data.getPathCalibration();
             CameraRGBDImages::init(pathCalibration.string(), cameraName);

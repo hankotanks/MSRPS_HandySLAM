@@ -15,7 +15,7 @@
 
 int main(int argc, char* argv[]) {
     ULogger::setType(ULogger::kTypeConsole);
-	ULogger::setLevel(ULogger::kInfo);
+	  ULogger::setLevel(ULogger::kInfo);
 
     Config cfg(argc, argv);
 
@@ -28,25 +28,20 @@ int main(int argc, char* argv[]) {
     rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDOptimizeMaxError(), "5.0"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
+  	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
+    params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRegStrategy(), "0"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
+	  params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
     
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemNotLinkedNodesKept(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemInitWMWithAllNodes(), "false"));
-    params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSaveDepth16Format(), "true"));
-
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemImageKept(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemBinDataKept(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSaveDepth16Format(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIntermediateNodeDataKept(), "true"));
-    params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSTMSize(), "1000"));
-    params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemImageCompressionFormat(), ".jpg"));
-    params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemDepthCompressionFormat(), ".rvl"));
 
     rtabmap::Odometry* odom = rtabmap::Odometry::create(params);
     rtabmap::OdometryInfo info;
@@ -65,7 +60,6 @@ int main(int argc, char* argv[]) {
 
         cameraData = camera.takeImage();
     }
-
     rtabmap.close();
 
     delete odom;
@@ -107,7 +101,7 @@ int main(int argc, char* argv[]) {
             UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
             delete driver;
         }
-        
+
         delete driver;
     }
    
