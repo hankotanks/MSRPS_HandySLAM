@@ -27,19 +27,21 @@ Dataloader::Dataloader(const Config& cfg) :
     pathDepth_(std::get<1>(cfg.getPaths()) / "temp" / "depth"),
     upscale_(cfg.upscaleWithPromptDA()),
     rebuild_(cfg.forceRebuild()) {
-    rebuild_ |= !Dataloader::validate(true); 
+    if(rebuild_ || !fs::exists(pathTemp_)) {
+        if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
+        fs::create_directories(pathTemp_);
+        fs::create_directories(pathColor_);
+        fs::create_directories(pathDepth_);
+    }
+
+    validation_ = Dataloader::validate(true);
+    rebuild_ |= !(validation_.valid());
       
     if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
     if(!rebuild_) {
         if(Dataloader::parseEvents()) invalid_ = true;
         return;
     }
-
-    if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
-
-    fs::create_directories(pathTemp_);
-    fs::create_directories(pathColor_);
-    fs::create_directories(pathDepth_);
 }
 
 size_t validateImagery(const fs::path& path) {
@@ -93,63 +95,67 @@ size_t validateLineCount(const fs::path& path, const bool hasHeader = false) {
 }
 
 // returns truthy if the data at pathTemp_ is valid
-bool Dataloader::validate(const bool silent) const {
-    if(invalid_) {
-        if(!silent) UERROR("Failed to parse IMU data [%s] and timestamps [%s].",
-            Dataloader::getPathIMU().c_str(), Dataloader::getPathStamps().c_str());
-        return false;
-    }
+DataloaderValidation Dataloader::validate(const bool silent) const {
+    DataloaderValidation validation;
 
     if(!fs::exists(pathTemp_)) {
         if(!silent) UERROR("Skipping validation, temp folder does not exist [%s].", 
             pathTemp_.c_str());
-        return false;
+        validation.fullRebuild = true;
+        return validation;
+    }
+
+    if(invalid_) {
+        if(!silent) UERROR("Failed to parse IMU data [%s] and timestamps [%s].",
+            Dataloader::getPathIMU().c_str(), Dataloader::getPathStamps().c_str());
+        validation.events = true;
     }
 
     if(!silent) UINFO("Beginning data validation.");
-    
-    const size_t imageCountRGB = validateImagery(Dataloader::getPathColor());
-    if(!imageCountRGB) {
+
+    validation.colorFrameCount = validateImagery(Dataloader::getPathColor());
+    if(!validation.colorFrameCount) {
         if(!silent) UERROR("Provided RGB imagery is invalid [%s].", 
             Dataloader::getPathColor().c_str());
-        return false;
+        validation.colorFrames = true;
     }
 
-    const size_t imageCountDepth = validateImagery(Dataloader::getPathDepth());
-    if(!imageCountDepth) {
+    validation.depthFrameCount = validateImagery(Dataloader::getPathDepth());
+    if(!validation.depthFrameCount) {
         if(!silent) UERROR("Provided depth imagery is invalid [%s].", 
             Dataloader::getPathDepth().c_str());
-        return false;
+        validation.depthFrames = true;
     }
 
-    if(imageCountRGB != imageCountDepth) {
-        if(!silent) UERROR("Number of RGB [%zu] and depth images [%zu] don't match.", 
-            imageCountRGB, imageCountDepth);
-        return false;
+    if(validation.colorFrameCount != validation.depthFrameCount) {
+        if(!silent) UWARN("Number of RGB [%zu] and depth images [%zu] don't match.", 
+            validation.colorFrameCount, validation.depthFrameCount);
     }
 
-    const size_t stampsCount = validateLineCount(Dataloader::getPathStamps());
-    if(stampsCount != imageCountRGB) {
-        if(!silent) UERROR("Imagery count [%zu] does not match number of timestamps [%zu] in [%s].", 
-            imageCountRGB, stampsCount, Dataloader::getPathStamps().c_str());
-        return false;
+    validation.stampCount = validateLineCount(Dataloader::getPathStamps());
+
+    if(validation.stampCount != validation.colorFrameCount) {
+        if(!silent) UERROR("Imagery count [%zu color, %zu depth] does not match number of timestamps [%zu] in [%s].", 
+            validation.colorFrameCount, validation.depthFrameCount, validation.stampCount, Dataloader::getPathStamps().c_str());
+        validation.events = true;
     }
 
     if(!fs::exists(Dataloader::getPathCalibrationFile())) {
         if(!silent) UERROR("Camera calibration file does not exist [%s].", 
             Dataloader::getPathCalibrationFile().c_str());
-        return false;
+        validation.calibration = true;
     }
 
-    const size_t imuCount = validateLineCount(Dataloader::getPathIMU());
-    if(imuCount != imageCountRGB) {
+    validation.sensorDataCount = validateLineCount(Dataloader::getPathIMU());
+    if(validation.sensorDataCount != validation.colorFrameCount) {
         if(!silent) UERROR("Imagery count [%zu] does not match number of IMU entries [%zu] in [%s].", 
-            imageCountRGB, imuCount, Dataloader::getPathIMU().c_str());
-        return false;
+            validation.colorFrameCount, validation.sensorDataCount, Dataloader::getPathIMU().c_str());
+        validation.events = true;
     }
 
     if(!silent) UINFO("Finished data validation.");
-    return true;
+
+    return validation;
 }
 
 cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const {
@@ -223,10 +229,8 @@ bool upscaleDepthPromptDA(
     UINFO("pathDepthIn: [%s].", pathDepthIn.c_str());
     UINFO("pathDepthOut: [%s].", pathDepthOut.c_str());
 
-    const bool result = PyScript("upscale_depth_imagery").call("main", "sssi", 
-        pathRGB.c_str(), 
-        pathDepthIn.c_str(), 
-        pathDepthOut.c_str(), HANDY_W);
+    const bool result = PyScript::get().call("upscale_depth", "sssi", 
+        pathRGB.c_str(), pathDepthIn.c_str(), pathDepthOut.c_str(), HANDY_W);
 
     if(result) UINFO("Completed depth upscaling WITH PromptDA.");
     else {

@@ -11,34 +11,46 @@
 
 namespace fs = std::filesystem;
 
-#if 0
-struct DataloaderMustRebuild {
-    bool full = false;
-    bool events = false, calibration = false;
-    bool colorFrames = false, depthFrames = false;
+struct DataloaderValidation {
+    bool fullRebuild = false;
+    bool events = false;
+    bool calibration = false;
+    bool colorFrames = false;
+    bool depthFrames = false;
+    size_t stampCount = 0;
+    size_t sensorDataCount = 0;
+    size_t colorFrameCount = 0;
+    size_t depthFrameCount = 0;
+    bool valid() { return !(fullRebuild || events || calibration || colorFrames || depthFrames) && stampCount != 0 && stampCount == sensorDataCount && stampCount == colorFrameCount && stampCount == depthFrameCount; }
 };
-#endif
 
 class Dataloader {
 private:
     bool invalid_ = false;
     bool rebuild_;
     bool upscale_;
+    DataloaderValidation validation_;
     fs::path pathData_, pathTemp_;
     fs::path pathColor_, pathDepth_;
     std::vector<rtabmap::IMUEvent> events_;
 public:
     Dataloader(const Config& cfg);
-    virtual bool process() = 0; // THE ONLY METHOD THAT SHOULD BE IMPLEMENTED ON DERIVED CLASSES
+    virtual bool process(const DataloaderValidation&) = 0; // THE ONLY METHOD THAT SHOULD BE IMPLEMENTED ON DERIVED CLASSES
     // initializer (invokes Dataloader::process and can't be overriden)
     virtual bool init() final { 
         if(!rebuild_) {
             UINFO("Using preprocessed scene data from last run.");
             return true; }
         UINFO("Began preprocessing scene data.");
-        if(process()) {
+        if(process(validation_)) {
             UINFO("Finished preprocessing scene data."); 
-            return Dataloader::validate();
+            DataloaderValidation validation = Dataloader::validate();
+            if(validation.valid()) return true;
+            UERROR("events: %s [%zu stamps] [%zu IMU readings]", validation.events ? "INVALID" : "VALID", validation.stampCount, validation.sensorDataCount);
+            UERROR("calibration: %s", validation.calibration ? "INVALID" : "VALID");
+            UERROR("color: %s [%zu frames]", validation.colorFrames ? "INVALID" : "VALID", validation.colorFrameCount);
+            UERROR("depth: %s [%zu frames]", validation.depthFrames ? "INVALID" : "VALID", validation.depthFrameCount);
+            return false;
         } else UERROR("Failed to preprocess scene data.");
         return false; }
     // helper methods
@@ -63,7 +75,7 @@ public:
     const std::vector<rtabmap::IMUEvent>& getEvents() const { return events_; }
 private:
     // data must pass validation to perform SLAM
-    bool validate(const bool silent = false) const;
+    DataloaderValidation validate(const bool silent = false) const;
     // invoked in constructor
     // error handling is punted until validation
     bool parseEvents();

@@ -6,7 +6,7 @@
 class DataloaderScanNet : public Dataloader {
 public:
     DataloaderScanNet(const Config& cfg) : Dataloader(cfg) { /* STUB */ };
-    virtual bool process() override;
+    virtual bool process(const DataloaderValidation& validation) override;
 };
 
 #endif // DATALOADER_SCANNET_H

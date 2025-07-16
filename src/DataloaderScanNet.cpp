@@ -10,6 +10,7 @@
 
 #include <rtabmap/core/IMU.h>
 
+#include "Dataloader.h"
 #include "ext/json.h"
 
 #include "PyScript.h"
@@ -97,42 +98,52 @@ bool unpackDepthBinary(
     const fs::path& pathDepthBinary, 
     const fs::path& pathDepthOut
 ) {
-    return PyScript("unpack_depth_binary")
-        .call("main", "ss", pathDepthBinary.c_str(), pathDepthOut.c_str());
+    UINFO("Began unpacking depth binary [%s].", pathDepthBinary.c_str());
+    const bool result = PyScript::get().call("unpack_depth_binary", "ss", 
+        pathDepthBinary.c_str(), pathDepthOut.c_str());
+    if(result) UINFO("Finished unpacking depth binary.");
+    return result;
 }
 
-bool DataloaderScanNet::process() {
+bool DataloaderScanNet::process(const DataloaderValidation& validation) {
     const fs::path pathData = Dataloader::getPathData() / "iphone";
 
-    // RGB
-    const fs::path pathColorIn = pathData / "rgb.mkv";
-    const cv::Size originalColorSize = Dataloader::splitColorVideoAndScale(pathColorIn);
-    if(originalColorSize.empty()) {
-        UERROR("Failed to split RGB frames [%s].", pathColorIn.c_str());
-        return false;
-    }
+    // RGB & IMU & CALIBRATION & TIMESTAMPS
+    cv::Size originalColorSize;
+    if(validation.colorFrames || validation.events || validation.calibration || validation.fullRebuild) {
+        const fs::path pathColorIn = pathData / "rgb.mkv";
+        originalColorSize = Dataloader::splitColorVideoAndScale(pathColorIn);
+        if(originalColorSize.empty()) {
+            UERROR("Failed to split RGB frames [%s].", pathColorIn.c_str());
+            return false;
+        }
 
-    // IMU & CALIBRATION & TIMESTAMPS
-    const fs::path pathJSON = pathData / "pose_intrinsic_imu.json";
-    auto [intrinsics, events] = parseIntrinsicsAndIMU(pathJSON);
-    if(events.empty()) {
-        UERROR("Failed to parse IMU data or camera intrinsics [%s].", pathJSON.c_str());
-        return false;
+        const fs::path pathJSON = pathData / "pose_intrinsic_imu.json";
+        auto [intrinsics, events] = parseIntrinsicsAndIMU(pathJSON);
+        if(events.empty()) {
+            UERROR("Failed to parse IMU data or camera intrinsics [%s].", pathJSON.c_str());
+            return false;
+        }
+        Dataloader::writeCalibration(intrinsics, originalColorSize);
+        Dataloader::storeEvents(std::move(events));
     }
-    Dataloader::writeCalibration(intrinsics, originalColorSize);
-    Dataloader::storeEvents(std::move(events));
 
     // DEPTH
-    const fs::path pathTemp = Dataloader::getPathDepth().parent_path();
-    const fs::path pathTempDepth = pathTemp / (Dataloader::getPathDepth().filename().string() + "_unpacked");
-    const fs::path pathDepthBinary = pathData / "depth.bin";
-    
-    if(!fs::exists(pathTempDepth)) fs::create_directories(pathTempDepth);
-    if(unpackDepthBinary(pathDepthBinary, pathTempDepth))
-        Dataloader::upscaleDepth(pathTempDepth);
-    else {
-        UERROR("Failed to unpack depth binary [%s].", pathDepthBinary.c_str());
-        return false;
+    if(validation.depthFrames || validation.fullRebuild) {
+        const fs::path pathDepthTemp = Dataloader::getPathDepth().parent_path() / (Dataloader::getPathDepth().filename().string() + "_unpacked");
+        const fs::path pathDepthBinary = pathData / "depth.bin";
+        if(fs::exists(pathDepthTemp)) {
+            UINFO("Using previously unpacked depth frames for upscaling [%s].", pathDepthTemp.c_str());
+            if(!Dataloader::upscaleDepth(pathDepthTemp)) return false;
+        } else {
+            fs::create_directories(pathDepthTemp);
+            if(unpackDepthBinary(pathDepthBinary, pathDepthTemp)) 
+                Dataloader::upscaleDepth(pathDepthTemp);
+            else {
+                UERROR("Failed to unpack depth binary [%s].", pathDepthBinary.c_str());
+                return false;
+            }
+        }
     }
 
     return true;
