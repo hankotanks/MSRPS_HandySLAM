@@ -1,6 +1,4 @@
-import os
-import glob
-import tqdm
+import os, glob, tqdm
 
 from promptda.utils.io_wrapper import load_image, load_depth, save_depth
 from promptda.utils.parallel_utils import parallel_execution

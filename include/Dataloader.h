@@ -11,6 +11,14 @@
 
 namespace fs = std::filesystem;
 
+#if 0
+struct DataloaderMustRebuild {
+    bool full = false;
+    bool events = false, calibration = false;
+    bool colorFrames = false, depthFrames = false;
+};
+#endif
+
 class Dataloader {
 private:
     bool invalid_ = false;
@@ -21,8 +29,6 @@ private:
     std::vector<rtabmap::IMUEvent> events_;
 public:
     Dataloader(const Config& cfg);
-    // data must past validation to perform SLAM
-    bool validate(const bool silent = false) const;
     virtual bool process() = 0; // THE ONLY METHOD THAT SHOULD BE IMPLEMENTED ON DERIVED CLASSES
     // initializer (invokes Dataloader::process and can't be overriden)
     virtual bool init() final { 
@@ -32,14 +38,14 @@ public:
         UINFO("Began preprocessing scene data.");
         if(process()) {
             UINFO("Finished preprocessing scene data."); 
-            return true;
+            return Dataloader::validate();
         } else UERROR("Failed to preprocess scene data.");
         return false; }
     // helper methods
     cv::Size splitColorVideoAndScale(const fs::path& pathColorIn) const; // returns the original image dimensions
     bool upscaleDepth(const fs::path& pathDepthIn) const; // either does dumb upscaling or PromptDA
-    void writeCalibration(const rtabmap::Transform& intrinsics, const cv::Size& originalColorSize) const;
-    void storeEvents(std::vector<rtabmap::IMUEvent>&& events);
+    bool writeCalibration(const rtabmap::Transform& intrinsics, const cv::Size& originalColorSize) const;
+    bool storeEvents(std::vector<rtabmap::IMUEvent>&& events);
     // getters
     fs::path getPathData() const { return pathData_; }
     fs::path getPathDB() const { return (pathTemp_ / "temp.db"); }
@@ -56,6 +62,8 @@ public:
     // otherwise, storeEvents should be called by the derived Dataloader class
     const std::vector<rtabmap::IMUEvent>& getEvents() const { return events_; }
 private:
+    // data must pass validation to perform SLAM
+    bool validate(const bool silent = false) const;
     // invoked in constructor
     // error handling is punted until validation
     bool parseEvents();

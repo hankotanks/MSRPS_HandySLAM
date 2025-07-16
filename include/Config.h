@@ -1,13 +1,18 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <string>
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
+enum ConfigDataSource {
+    STRAY,
+    SCANNET
+};
+
 class Config {
 private:
+    ConfigDataSource dataSource_;
     fs::path pathData_;
     fs::path pathOut_;
     bool forceRebuild_ = false;
@@ -19,6 +24,7 @@ public:
     bool forceRebuild() const { return forceRebuild_; }
     bool upscaleWithPromptDA() const { return upscaleWithPromptDA_; }
     bool savePoints() const { return savePoints_; }
+    ConfigDataSource dataSource() { return dataSource_; }
 };
 
 #endif // CONFIG_H

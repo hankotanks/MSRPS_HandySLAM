@@ -8,10 +8,15 @@
 #include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/DBDriverSqlite3.h>
 
-#include "CloudStream.h"
 #include "Config.h"
-#include "DataloaderStray.h"
 #include "CameraHandy.h"
+#include "DataloaderStray.h"
+#include "DataloaderScanNet.h"
+#include "CloudStream.h"
+
+#define CLOUD_NAME "out"
+
+#define MAX_POINTS 20000000
 
 void run(const Config&, const Dataloader&);
 
@@ -23,8 +28,19 @@ int main(int argc, char* argv[]) {
 
     const auto [pathData, pathOut] = cfg.getPaths();
 
-    DataloaderStray data(cfg);
-    if(data.init() && data.validate()) run(cfg, data);
+    switch(cfg.dataSource()) {
+        case STRAY: {
+            DataloaderStray dataStray(cfg);
+            if(dataStray.init()) run(cfg, dataStray);
+            break;
+        }
+        case SCANNET: {
+            DataloaderScanNet dataScanNet(cfg);
+            if(dataScanNet.init()) run(cfg, dataScanNet);
+            break;
+        }
+        default: UERROR("Unreachable!");
+    }
     
     return 0;
 }
@@ -70,7 +86,11 @@ void run(const Config& cfg, const Dataloader& data) {
     delete odom;
 
     if(cfg.savePoints()) {
-        CloudStream writeFrame(cfg, "out");
+        size_t cloudIdx = 0;
+        std::ostringstream cloudName;
+        cloudName << CLOUD_NAME << cloudIdx;
+
+        CloudStream writeFrame(cfg, cloudName.str());
 
         rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
         if(driver->openConnection(data.getPathDB(), false)) {
@@ -97,15 +117,20 @@ void run(const Config& cfg, const Dataloader& data) {
                 UINFO("Writing node [%d].", id);
 
                 writeFrame(cameraData, pose);
+
+                if(writeFrame.pointCount() > MAX_POINTS) {
+                    writeFrame.close();
+                    cloudName.str("");
+                    cloudName.clear();
+                    cloudName << CLOUD_NAME << (++cloudIdx);
+                    writeFrame = CloudStream(cfg, cloudName.str());
+                }
                 
                 delete node;
             }
 
             driver->closeConnection();
-        } else {
-            UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
-            delete driver;
-        }
+        } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
 
         delete driver;
     }

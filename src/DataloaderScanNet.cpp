@@ -126,6 +126,8 @@ bool DataloaderScanNet::process() {
     const fs::path pathTemp = Dataloader::getPathDepth().parent_path();
     const fs::path pathTempDepth = pathTemp / (Dataloader::getPathDepth().filename().string() + "_unpacked");
     const fs::path pathDepthBinary = pathData / "depth.bin";
+    
+    if(!fs::exists(pathTempDepth)) fs::create_directories(pathTempDepth);
     if(unpackDepthBinary(pathDepthBinary, pathTempDepth))
         Dataloader::upscaleDepth(pathTempDepth);
     else {

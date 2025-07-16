@@ -18,14 +18,17 @@ namespace fs = std::filesystem;
 
 class CloudStream {
 private:
-    size_t count_ = 0;
-    size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::fstream file_;
     fs::path filePath_;
+    size_t count_ = 0;
+    const size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::streampos countPos_;
 public:
     CloudStream(const Config& cfg, const std::string& cloudName) {
-        if(!cfg.savePoints()) return;
+        if(!cfg.savePoints()) {
+            UWARN("CloudStream should only be constructed if '--save' is set.");
+            return;
+        }
 
         const auto [_, pathOut] = cfg.getPaths();
         filePath_ = pathOut / (cloudName + ".ply");
@@ -47,7 +50,45 @@ public:
         file_ << "end_header" << std::endl;
     }
 
+    CloudStream(CloudStream&& other) noexcept : 
+        filePath_(std::move(other.filePath_)),
+        count_(other.count_), 
+        countPos_(other.countPos_) {
+        file_ = std::move(other.file_);
+        other.count_ = 0;
+        other.countPos_ = 0;
+    }
+
+    CloudStream& operator=(CloudStream&& other) noexcept {
+        if(this == &other) return *this;
+
+        file_.close();
+        file_ = std::move(other.file_);
+        filePath_ = std::move(other.filePath_);
+
+        count_ = other.count_;
+        countPos_ = other.countPos_;
+
+        other.count_ = 0;
+        other.countPos_ = 0;
+
+        return *this;
+    }
+
+    CloudStream(const CloudStream& other) = delete;
+    CloudStream& operator=(const CloudStream& other) = delete;
+
     ~CloudStream() {
+        if(file_.is_open()) CloudStream::close();
+    }
+
+public:
+    void close() {
+        if(!file_.is_open()) {
+            UWARN("CloudStream has already been closed.");
+            return;
+        }
+
         UINFO("Making final modifications to output point cloud [%s].", filePath_.c_str());
 
         file_.clear();
@@ -58,8 +99,18 @@ public:
         file_.close();
     }
 
+    size_t pointCount() { return count_; }
+
     void operator()(const rtabmap::SensorData& sensorData, const rtabmap::Transform& pose) {
-        if(!sensorData.isValid()) return;
+        if(!file_.is_open()) {
+            UWARN("CloudStream is closed, data cannot be written to it.");
+            return;
+        }
+
+        if(!sensorData.isValid()) {
+            UWARN("CloudStream received invalid SensorData. Skipping frame.");
+            return;
+        }
 
         UINFO("Writing frame to output point cloud [%s].", filePath_.c_str());
 

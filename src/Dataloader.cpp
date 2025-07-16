@@ -107,6 +107,7 @@ bool Dataloader::validate(const bool silent) const {
     }
 
     if(!silent) UINFO("Beginning data validation.");
+    
     const size_t imageCountRGB = validateImagery(Dataloader::getPathColor());
     if(!imageCountRGB) {
         if(!silent) UERROR("Provided RGB imagery is invalid [%s].", 
@@ -152,6 +153,8 @@ bool Dataloader::validate(const bool silent) const {
 }
 
 cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const {
+    UINFO("Began splitting color imagery [%s].", pathColorIn.c_str());
+
     cv::VideoCapture cap(pathColorIn);
     if(!cap.isOpened()) {
         UWARN("Failed to split RGB imagery from [%s].", pathColorIn.c_str());
@@ -166,16 +169,23 @@ cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const 
     for(int frameCount = 0; cap.read(frame); ++frameCount) {
         std::ostringstream filename;
         filename << std::setw(6) << std::setfill('0') << frameCount << ".png";
+        fs::path pathFrame = Dataloader::getPathColor() / filename.str();
 
         cv::Mat frameResized;
         cv::resize(frame, frameResized, cv::Size(HANDY_W, HANDY_H));
-        cv::imwrite(Dataloader::getPathColor() / filename.str(), frameResized);
+        cv::imwrite(pathFrame, frameResized);
+
+        UINFO("Saved color frame [%d] to [%s].", frameCount, pathFrame.c_str());
     }
+
+    UINFO("Completed splitting color imagery.");
 
     return capSize;
 }
 
 void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut) {
+    UINFO("Began depth upscaling WITHOUT PromptDA [%s].", pathDepthIn.c_str());
+
     std::vector<fs::directory_entry> entries;
     for(const auto& entry : fs::directory_iterator(pathDepthIn)) {
         if(entry.is_regular_file() && entry.path().extension() == ".png") entries.push_back(entry);
@@ -190,12 +200,17 @@ void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut
 
         cv::Mat frame = cv::imread(entry.path().string(), cv::IMREAD_UNCHANGED);
         if(frame.empty()) UWARN("Failed to process a frame of depth imagery [%s].", entry.path().c_str());
+        fs::path pathFrame = pathDepthOut / entry.path().filename().string();
 
         cv::Mat frameResized;
         cv::resize(frame, frameResized, cv::Size(HANDY_W, HANDY_H));
 
-        cv::imwrite(pathDepthOut / entry.path().filename().string(), frameResized);
+        cv::imwrite(pathFrame, frameResized);
+
+        UINFO("Saved depth frame [%zu] to [%s].", i, pathFrame.c_str());
     }
+
+    UINFO("Completed depth upscaling WITHOUT PromptDA.");
 }
 
 bool upscaleDepthPromptDA(
@@ -203,10 +218,25 @@ bool upscaleDepthPromptDA(
     const fs::path& pathDepthIn, 
     const fs::path& pathDepthOut
 ) {
-    return PyScript("upscale_depth_imagery").call("main", "sssi", 
+    UINFO("Began depth upscaling WITH PromptDA.");
+    UINFO("pathRGB: [%s].", pathRGB.c_str());
+    UINFO("pathDepthIn: [%s].", pathDepthIn.c_str());
+    UINFO("pathDepthOut: [%s].", pathDepthOut.c_str());
+
+    const bool result = PyScript("upscale_depth_imagery").call("main", "sssi", 
         pathRGB.c_str(), 
         pathDepthIn.c_str(), 
         pathDepthOut.c_str(), HANDY_W);
+
+    if(result) UINFO("Completed depth upscaling WITH PromptDA.");
+    else {
+        UERROR("Failed to upscale depth imagery WITH PromptDA.");
+        UINFO("pathRGB: [%s].", pathRGB.c_str());
+        UINFO("pathDepthIn: [%s].", pathDepthIn.c_str());
+        UINFO("pathDepthOut: [%s].", pathDepthOut.c_str());
+    }
+
+    return result;
 }
 
 bool Dataloader::upscaleDepth(const fs::path& pathDepthIn) const {
@@ -218,22 +248,45 @@ bool Dataloader::upscaleDepth(const fs::path& pathDepthIn) const {
     return true;
 }
 
-void Dataloader::writeCalibration(
+bool Dataloader::writeCalibration(
     const rtabmap::Transform& intrinsics, 
     const cv::Size& originalColorSize
 ) const {
+    double fx, fy, cx, cy;
+    fx = intrinsics(0, 0);
+    fy = intrinsics(1, 1);
+    cx = intrinsics(0, 2);
+    cy = intrinsics(1, 2);
+
+    UINFO("Received camera intrinsics for imagery with size [%dx%d].", originalColorSize.width, originalColorSize.height);
+    UINFO("fx: [%lf].", fx);
+    UINFO("fy: [%lf].", fy);
+    UINFO("cx: [%lf].", cx);
+    UINFO("cy: [%lf].", cy);
+
     double width_scalar = \
         static_cast<double>(HANDY_W) / static_cast<double>(originalColorSize.width);
     double height_scalar = \
         static_cast<double>(HANDY_H) / static_cast<double>(originalColorSize.height);
 
-    double fx, fy, cx, cy;
-    fx = intrinsics(0, 0) * width_scalar;
-    fy = intrinsics(1, 1) * height_scalar;
-    cx = intrinsics(0, 2) * width_scalar;
-    cy = intrinsics(1, 2) * height_scalar;
+    fx *= width_scalar;
+    fy *= height_scalar;
+    cx *= width_scalar;
+    cy *= height_scalar;
+
+    UINFO("Rescaled camera intrinsics to [%dx%d].", HANDY_W, HANDY_H);
+    UINFO("fx: [%lf].", fx);
+    UINFO("fy: [%lf].", fy);
+    UINFO("cx: [%lf].", cx);
+    UINFO("cy: [%lf].", cy);
+
+    UINFO("Began writing camera calibration [%s].", Dataloader::getPathCalibrationFile().c_str());
 
     std::ofstream file(Dataloader::getPathCalibrationFile());
+    if(!file.is_open()) {
+        UERROR("Failed to open camera calibration output file [%s].", Dataloader::getPathCalibrationFile().c_str());
+        return false;
+    }
     file << "%YAML:1.0" << std::endl;
     file << "---" << std::endl;
     file << "camera_name: handy_camera" << std::endl;
@@ -269,12 +322,26 @@ void Dataloader::writeCalibration(
     file << 0.0 << ", " << fy  << ", " << cy  << ", 0.0, ";
     file << 0.0 << ", " << 0.0 << ", " << 0.0 << ", 0.0 ]" << std::endl;
     file.close();
+
+    UINFO("Finished writing camera calibration.");
+
+    return true;
 }
 
-void Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
+bool Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
+    UINFO("Began storing [%zu] IMU events.", events.size());
+
     events_ = std::move(events);
     std::ofstream streamIMU(Dataloader::getPathIMU());
+    if(!streamIMU.is_open()) {
+        UERROR("Failed to write to IMU output file [%s].", Dataloader::getPathIMU().c_str());
+        return false;
+    }
     std::ofstream streamStamps(Dataloader::getPathStamps());
+    if(!streamStamps.is_open()) {
+        UERROR("Failed to write to timestamps output file [%s].", Dataloader::getPathStamps().c_str());
+        return false;
+    }
 
     rtabmap::IMU sensorData;
     for(const rtabmap::IMUEvent& event : events_) {
@@ -292,6 +359,10 @@ void Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
 
     streamIMU.close();
     streamStamps.close();
+
+    UINFO("Finished writing IMU and timestamp data to temp folder.");
+
+    return true;
 }
 
 bool Dataloader::parseEvents() {

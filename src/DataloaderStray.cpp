@@ -114,7 +114,7 @@ bool DataloaderStray::process() {
         UERROR("Failed to parse camera matrix [%s].", pathCameraMatrix.c_str());
         return false;
     }
-    Dataloader::writeCalibration(*intrinsics, originalColorSize);
+    if(!Dataloader::writeCalibration(*intrinsics, originalColorSize)) return false;
 
     // TIMESTAMPS AND IMU
     const fs::path pathOdometry = Dataloader::getPathData() / "odometry.csv";
@@ -124,7 +124,7 @@ bool DataloaderStray::process() {
         UERROR("Failed to parse odometry [%s] or IMU data [%s].", pathOdometry.c_str(), pathIMU.c_str());
         return false;
     }
-    Dataloader::storeEvents(std::move(events));
+    if(!Dataloader::storeEvents(std::move(events))) return false;
 
     return true;
 }

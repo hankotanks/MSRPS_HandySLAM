@@ -11,6 +11,7 @@
 Config::Config(int argc, char* argv[]) {
     std::string pathData, pathOut = "";
     auto cli = (
+        clipp::command("stray").set(dataSource_, STRAY) | clipp::command("scannet").set(dataSource_, SCANNET),
         clipp::value("data-path", pathData),
         clipp::option("-o", "--out").doc("species output directory, defaults to data path") &
             clipp::value("out-path", pathOut),
