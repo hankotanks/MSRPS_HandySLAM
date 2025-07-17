@@ -100,8 +100,7 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
             ); stampIdx++;
         } 
 
-        t0 = tf;
-        iterIdx++;
+        t0 = tf; iterIdx++;
     }
 
     std::vector<rtabmap::IMUEvent> events;
