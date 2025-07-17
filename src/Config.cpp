@@ -16,6 +16,7 @@ Config::Config(int argc, char* argv[]) {
         clipp::option("-o", "--out").doc("species output directory, defaults to data path") &
             clipp::value("out-path", pathOut),
         clipp::option("-f", "--force").set(forceRebuild_).doc("force a rebuild of the temp folder"),
+        clipp::option("-p", "--post").set(skipSLAM_).doc("skip SLAM and use database from previous run (if possible)"),
         clipp::option("-u", "--upscale").set(upscaleWithPromptDA_).doc("upscale imagery using PromptDA"),
         clipp::option("-s", "--save").set(savePoints_).doc("save generated point cloud as PLY")
     );
@@ -30,16 +31,12 @@ Config::Config(int argc, char* argv[]) {
         std::exit(1);
     }
 
-    if(pathOut.size()) {
-        pathOut_ = fs::path(pathOut);
+    pathOut_ = pathOut.size() ? fs::path(pathOut) : pathData_;
+    if(!fs::exists(pathOut_)) {
+        fs::create_directories(pathOut_);
         if(!fs::exists(pathOut_)) {
-            fs::create_directories(pathOut_);
-            if(!fs::exists(pathOut_)) {
-                UERROR("Failed to create output folder [%s].", pathOut_.c_str());
-                std::exit(1);
-            }
+            UERROR("Failed to create output folder [%s].", pathOut_.c_str());
+            std::exit(1);
         }
-    } else {
-        pathOut_ = pathData_;
     }
 }

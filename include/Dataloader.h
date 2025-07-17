@@ -26,6 +26,7 @@ struct DataloaderValidation {
 
 class Dataloader {
 private:
+    bool skip_ = false;
     bool invalid_ = false;
     bool rebuild_;
     bool upscale_;
@@ -38,6 +39,7 @@ public:
     virtual bool process(const DataloaderValidation&) = 0; // THE ONLY METHOD THAT SHOULD BE IMPLEMENTED ON DERIVED CLASSES
     // initializer (invokes Dataloader::process and can't be overriden)
     virtual bool init() final { 
+        if(skip_) return true;
         if(!rebuild_) {
             UINFO("Using preprocessed scene data from last run.");
             return true; }
@@ -54,10 +56,13 @@ public:
         } else UERROR("Failed to preprocess scene data.");
         return false; }
     // helper methods
+    cv::Size queryColorVideoSize(const fs::path& pathColorIn) const;
     cv::Size splitColorVideoAndScale(const fs::path& pathColorIn) const; // returns the original image dimensions
     bool upscaleDepth(const fs::path& pathDepthIn) const; // either does dumb upscaling or PromptDA
     bool writeCalibration(const rtabmap::Transform& intrinsics, const cv::Size& originalColorSize) const;
     bool storeEvents(std::vector<rtabmap::IMUEvent>&& events);
+    // check if SLAM should be skipped
+    bool skipSLAM() const { return skip_; }
     // getters
     fs::path getPathData() const { return pathData_; }
     fs::path getPathDB() const { return (pathTemp_ / "temp.db"); }

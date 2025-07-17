@@ -94,13 +94,22 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
 }
 
 bool DataloaderStray::process(const DataloaderValidation& validation) {
+    const fs::path pathColorIn = Dataloader::getPathData() / "rgb.mp4";
+    
     // RGB AND CALIBRATION
     cv::Size originalColorSize;
-    if(validation.colorFrames || validation.calibration || validation.fullRebuild) {
-        const fs::path pathColorIn = Dataloader::getPathData() / "rgb.mp4";
+    if(validation.colorFrames || validation.fullRebuild) {
         originalColorSize = Dataloader::splitColorVideoAndScale(pathColorIn);
         if(originalColorSize.empty()) {
             UERROR("Failed to split RGB frames [%s].", pathColorIn.c_str());
+            return false;
+        }
+    }
+
+    if(validation.calibration || validation.fullRebuild) {
+        if(originalColorSize.empty()) originalColorSize = Dataloader::queryColorVideoSize(pathColorIn);
+        if(originalColorSize.empty()) {
+            UERROR("Failed to retrieve dimensions of color imagery [%s]. ", pathColorIn.c_str());
             return false;
         }
 

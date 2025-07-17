@@ -27,6 +27,12 @@ Dataloader::Dataloader(const Config& cfg) :
     pathDepth_(std::get<1>(cfg.getPaths()) / "temp" / "depth"),
     upscale_(cfg.upscaleWithPromptDA()),
     rebuild_(cfg.forceRebuild()) {
+    if(cfg.skipSLAM() && fs::exists(Dataloader::getPathDB())) {
+        UINFO("Skipping SLAM, beginning postprocessing.");
+        skip_ = true;
+        return;
+    }
+
     if(rebuild_ || !fs::exists(pathTemp_)) {
         if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
         fs::create_directories(pathTemp_);
@@ -68,6 +74,8 @@ size_t validateImagery(const fs::path& path) {
 }
 
 size_t validateLineCount(const fs::path& path, const bool hasHeader = false) {
+    if(!fs::exists(path)) return 0;
+
     std::ifstream file(path);  // Open the file
     if(!file.is_open()) {
         UERROR("Failed to open [%s].", path.c_str());
@@ -158,6 +166,23 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
     return validation;
 }
 
+cv::Size Dataloader::queryColorVideoSize(const fs::path& pathColorIn) const {
+    UINFO("Querying dimensions of color imagery [%s].", pathColorIn.c_str());
+
+    cv::VideoCapture cap(pathColorIn);
+    if(!cap.isOpened()) {
+        UWARN("Failed to split RGB imagery from [%s].", pathColorIn.c_str());
+        return cv::Size(0, 0);
+    }
+
+    cv::Size size;
+    size.width =  static_cast<size_t>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+    size.height = static_cast<size_t>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    cap.release();
+
+    return size;
+}
+
 cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const {
     UINFO("Began splitting color imagery [%s].", pathColorIn.c_str());
 
@@ -183,6 +208,8 @@ cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const 
 
         UINFO("Saved color frame [%d] to [%s].", frameCount, pathFrame.c_str());
     }
+    
+    cap.release();
 
     UINFO("Completed splitting color imagery.");
 

@@ -1,3 +1,5 @@
+#include <optional>
+
 #include <rtabmap/core/Rtabmap.h>
 #include <rtabmap/core/Parameters.h>
 #include <rtabmap/core/Odometry.h>
@@ -12,7 +14,9 @@
 #include "CameraHandy.h"
 #include "DataloaderStray.h"
 #include "DataloaderScanNet.h"
+#include "PoseStream.h"
 #include "CloudStream.h"
+#include "rtabmap/core/SensorData.h"
 
 #define CLOUD_NAME "out"
 
@@ -25,9 +29,6 @@ int main(int argc, char* argv[]) {
 	ULogger::setLevel(ULogger::kInfo);
 
     Config cfg(argc, argv);
-
-    const auto [pathData, pathOut] = cfg.getPaths();
-
     switch(cfg.dataSource()) {
         case STRAY: {
             DataloaderStray dataStray(cfg);
@@ -45,7 +46,14 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+void post(const Config&, const Dataloader&);
+
 void run(const Config& cfg, const Dataloader& data) {
+    if(data.skipSLAM()) {
+        post(cfg, data);
+        return;
+    }
+
     rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
@@ -85,55 +93,72 @@ void run(const Config& cfg, const Dataloader& data) {
 
     delete odom;
 
-    if(cfg.savePoints()) {
+    post(cfg, data);
+   
+    UINFO("Finished SLAM with [%d] frames.", cameraData.id());
+}
+
+void post(const Config& cfg, const Dataloader& data) {
+    rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
+
+    rtabmap::SensorData cameraData;
+    if(driver->openConnection(data.getPathDB(), false)) {
+        std::map<int, rtabmap::Transform> poses = driver->loadOptimizedPoses();
+
         size_t cloudIdx = 0;
         std::ostringstream cloudName;
         cloudName << CLOUD_NAME << cloudIdx;
 
-        CloudStream writeFrame(cfg, cloudName.str());
+        std::optional<CloudStream> writeFrame = std::nullopt;
+        if(cfg.savePoints()) writeFrame = CloudStream(cfg, cloudName.str());
 
-        rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
-        if(driver->openConnection(data.getPathDB(), false)) {
-            std::map<int, rtabmap::Transform> poses = driver->loadOptimizedPoses();
+        PoseStream writePose(cfg);
 
-            rtabmap::Signature* node;
-            for(const auto& [id, pose] : poses) {
-                node = driver->loadSignature(id);
-                if(node == nullptr) {
-                    UWARN("Failed to load node [%d] from database, skipping frame.", id);
-                    continue;
-                }
+        rtabmap::Signature* node;
+        for(const auto& [id, pose] : poses) {
+            node = driver->loadSignature(id);
+            if(node == nullptr) {
+                UWARN("Failed to load node [%d] from database, skipping frame.", id);
+                continue;
+            }
 
-                driver->loadNodeData(node);
+            driver->loadNodeData(node);
 
-                cameraData = node->sensorData();
-                cameraData.uncompressData();
+            cameraData = node->sensorData();
+            if(!cameraData.isValid()) {
+                UWARN("Retrieved sensor data is invalid [%d], skipping frame.", id);
+                continue;
+            }
 
-                if(cameraData.imageRaw().empty()) {
-                    UWARN("Failed to retrieve data from node [%d], skipping frame.", id);
-                    continue;
-                }
+            cameraData.uncompressData();
+            writePose(pose, cameraData.stamp());
 
-                UINFO("Writing node [%d].", id);
+            if(cameraData.imageRaw().empty()) {
+                UWARN("Failed to retrieve data from node [%d], skipping frame.", id);
+                continue;
+            }
 
-                writeFrame(cameraData, pose);
+            UINFO("Writing node [%d].", id);
 
-                if(writeFrame.pointCount() > MAX_POINTS) {
-                    writeFrame.close();
+            if(writeFrame) {
+                CloudStream& writeFrameTemp = *writeFrame;
+                writeFrameTemp(cameraData, pose);
+                if(writeFrameTemp.pointCount() > MAX_POINTS) {
+                    writeFrameTemp.close();
                     cloudName.str("");
                     cloudName.clear();
                     cloudName << CLOUD_NAME << (++cloudIdx);
                     writeFrame = CloudStream(cfg, cloudName.str());
                 }
-                
-                delete node;
             }
+            
+            delete node;
+        }
 
-            driver->closeConnection();
-        } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
+        driver->closeConnection();
+    } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
 
-        delete driver;
-    }
-   
+    delete driver;
+
     UINFO("Finished processing [%d] frames.", cameraData.id());
 }

@@ -107,14 +107,23 @@ bool unpackDepthBinary(
 
 bool DataloaderScanNet::process(const DataloaderValidation& validation) {
     const fs::path pathData = Dataloader::getPathData() / "iphone";
-
+    const fs::path pathColorIn = pathData / "rgb.mkv";
+    
     // RGB & IMU & CALIBRATION & TIMESTAMPS
     cv::Size originalColorSize;
-    if(validation.colorFrames || validation.events || validation.calibration || validation.fullRebuild) {
-        const fs::path pathColorIn = pathData / "rgb.mkv";
+    if(validation.colorFrames || validation.fullRebuild) {
         originalColorSize = Dataloader::splitColorVideoAndScale(pathColorIn);
         if(originalColorSize.empty()) {
             UERROR("Failed to split RGB frames [%s].", pathColorIn.c_str());
+            return false;
+        }
+    }
+
+    // IMU & CALIBRATION
+    if(validation.events || validation.calibration || validation.fullRebuild) {
+        if(originalColorSize.empty()) originalColorSize = Dataloader::queryColorVideoSize(pathColorIn);
+        if(originalColorSize.empty()) {
+            UERROR("Failed to retrieve dimensions of color imagery [%s]. ", pathColorIn.c_str());
             return false;
         }
 

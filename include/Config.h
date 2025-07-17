@@ -5,10 +5,7 @@
 
 namespace fs = std::filesystem;
 
-enum ConfigDataSource {
-    STRAY,
-    SCANNET
-};
+enum ConfigDataSource { STRAY, SCANNET };
 
 class Config {
 private:
@@ -18,12 +15,14 @@ private:
     bool forceRebuild_ = false;
     bool upscaleWithPromptDA_ = false;
     bool savePoints_ = false;
+    bool skipSLAM_ = false;
 public:
     Config(int argc, char* argv[]);
     std::pair<fs::path, fs::path> getPaths() const { return std::make_pair(pathData_, pathOut_); }
     bool forceRebuild() const { return forceRebuild_; }
     bool upscaleWithPromptDA() const { return upscaleWithPromptDA_; }
     bool savePoints() const { return savePoints_; }
+    bool skipSLAM() const { return skipSLAM_; }
     ConfigDataSource dataSource() { return dataSource_; }
 };
 

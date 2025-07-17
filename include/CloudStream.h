@@ -30,8 +30,8 @@ public:
             return;
         }
 
-        const auto [_, pathOut] = cfg.getPaths();
-        filePath_ = pathOut / (cloudName + ".ply");
+        filePath_ = std::get<1>(cfg.getPaths()) / "cloud" / (cloudName + ".ply");
+        if(!fs::exists(filePath_.parent_path())) fs::create_directories(filePath_.parent_path());
         file_ = std::fstream(filePath_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);
 
