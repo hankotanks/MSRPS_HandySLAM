@@ -11,14 +11,16 @@
 Config::Config(int argc, char* argv[]) {
     std::string pathData, pathOut = "";
     auto cli = (
-        clipp::command("stray").set(dataSource_, STRAY) | clipp::command("scannet").set(dataSource_, SCANNET),
+        clipp::command("stray").set(dataSource_, STRAY) | 
+            clipp::command("scannet").set(dataSource_, SCANNET),
         clipp::value("data-path", pathData),
         clipp::option("-o", "--out").doc("species output directory, defaults to data path") &
             clipp::value("out-path", pathOut),
         clipp::option("-f", "--force").set(forceRebuild_).doc("force a rebuild of the temp folder"),
         clipp::option("-p", "--post").set(skipSLAM_).doc("skip SLAM and use database from previous run (if possible)"),
         clipp::option("-u", "--upscale").set(upscaleWithPromptDA_).doc("upscale imagery using PromptDA"),
-        clipp::option("-s", "--save").set(savePoints_).doc("save generated point cloud as PLY")
+        clipp::option("-s", "--save").set(savePoints_).doc("save generated point cloud as PLY"),
+        clipp::option("-i", "--imu").set(withIMU_).doc("integrate orientation using IMU data")
     );
 
     if(!clipp::parse(argc, argv, cli)) {

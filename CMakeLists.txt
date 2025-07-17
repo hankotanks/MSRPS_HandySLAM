@@ -51,6 +51,7 @@ option(WITH_MADGWICK       "Include Madgwick IMU filtering support" OFF)
 option(WITH_FASTCV         "Include FastCV support"                 OFF)
 option(WITH_OPENGV         "Include OpenGV support"                 OFF)
 option(WITH_CERES          "Include Ceres support"                  OFF)
+option(WITH_TORO           "Include TORO support"                   ON)
 add_subdirectory(rtabmap)
 
 add_executable(HandySLAM
@@ -59,7 +60,8 @@ add_executable(HandySLAM
   ${HANDY_DIR_SRC}/Config.cpp
   ${HANDY_DIR_SRC}/Dataloader.cpp
   ${HANDY_DIR_SRC}/DataloaderStray.cpp
-  ${HANDY_DIR_SRC}/DataloaderScanNet.cpp)
+  ${HANDY_DIR_SRC}/DataloaderScanNet.cpp
+  ${HANDY_DIR_SRC}/MadgwickFilter.cpp)
 
 target_include_directories(HandySLAM PRIVATE
   ${HANDY_DIR_INC} 

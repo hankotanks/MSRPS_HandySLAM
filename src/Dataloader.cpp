@@ -135,6 +135,7 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
         validation.depthFrames = true;
     }
 
+    size_t frameCount = std::min(validation.colorFrameCount, validation.depthFrameCount);
     if(validation.colorFrameCount != validation.depthFrameCount) {
         if(!silent) UWARN("Number of RGB [%zu] and depth images [%zu] don't match.", 
             validation.colorFrameCount, validation.depthFrameCount);
@@ -142,7 +143,7 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
 
     validation.stampCount = validateLineCount(Dataloader::getPathStamps());
 
-    if(validation.stampCount != validation.colorFrameCount) {
+    if(validation.stampCount < frameCount) {
         if(!silent) UERROR("Imagery count [%zu color, %zu depth] does not match number of timestamps [%zu] in [%s].", 
             validation.colorFrameCount, validation.depthFrameCount, validation.stampCount, Dataloader::getPathStamps().c_str());
         validation.events = true;
@@ -155,7 +156,7 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
     }
 
     validation.sensorDataCount = validateLineCount(Dataloader::getPathIMU());
-    if(validation.sensorDataCount != validation.colorFrameCount) {
+    if(validation.sensorDataCount < frameCount) {
         if(!silent) UERROR("Imagery count [%zu] does not match number of IMU entries [%zu] in [%s].", 
             validation.colorFrameCount, validation.sensorDataCount, Dataloader::getPathIMU().c_str());
         validation.events = true;
@@ -383,7 +384,11 @@ bool Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
         streamIMU << std::fixed << std::setprecision(6) << sensorData.linearAcceleration()[2] << ", ";
         streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[0] << ", ";
         streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[1] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[2] << std::endl;
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[2] << ", ";
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[0] << ", ";
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[1] << ", ";
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[2] << ", ";
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[3] << std::endl;
 
         streamStamps << std::fixed << std::setprecision(6) << event.getStamp() << std::endl;
     }
@@ -409,11 +414,11 @@ bool Dataloader::parseEvents() {
 
     char* temp;
 
-    double lx, ly, lz, ax, ay, az;
+    double lx, ly, lz, ax, ay, az, qx, qy, qz, qw;
     for(const auto row : imuParser) {
         if(!(stampsStream >> stampCurrent)) return false;
 
-        const auto raw = row.cells(0, 1, 2, 3, 4, 5);
+        const auto raw = row.cells(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
         lx = std::strtof(raw[0].raw().data(), &temp);
         if(temp == raw[0].raw().data()) return false;
         ly = std::strtof(raw[1].raw().data(), &temp);
@@ -427,7 +432,18 @@ bool Dataloader::parseEvents() {
         az = std::strtof(raw[5].raw().data(), &temp);
         if(temp == raw[5].raw().data()) return false;
 
+        qx = std::strtof(raw[6].raw().data(), &temp);
+        if(temp == raw[6].raw().data()) return false;
+        qy = std::strtof(raw[7].raw().data(), &temp);
+        if(temp == raw[7].raw().data()) return false;
+        qz = std::strtof(raw[8].raw().data(), &temp);
+        if(temp == raw[8].raw().data()) return false;
+        qw = std::strtof(raw[9].raw().data(), &temp);
+        if(temp == raw[9].raw().data()) return false;
+
         imuCurrent = rtabmap::IMU(
+            cv::Vec4d(qx, qy, qz, qw),
+            cv::Mat::eye(4, 4, CV_64F),
             cv::Vec3d(ax, ay, az),
             cv::Mat::eye(3, 3, CV_64F),
             cv::Vec3d(lx, ly, lz),

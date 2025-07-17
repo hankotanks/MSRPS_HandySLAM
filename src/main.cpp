@@ -5,10 +5,10 @@
 #include <rtabmap/core/Odometry.h>
 #include <rtabmap/core/OdometryInfo.h>
 #include <rtabmap/core/util3d.h>
-#include <rtabmap/utilite/ULogger.h>
-
 #include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/DBDriverSqlite3.h>
+#include <rtabmap/core/SensorData.h>
+#include <rtabmap/utilite/ULogger.h>
 
 #include "Config.h"
 #include "CameraHandy.h"
@@ -16,7 +16,6 @@
 #include "DataloaderScanNet.h"
 #include "PoseStream.h"
 #include "CloudStream.h"
-#include "rtabmap/core/SensorData.h"
 
 #define CLOUD_NAME "out"
 
@@ -54,7 +53,7 @@ void run(const Config& cfg, const Dataloader& data) {
         return;
     }
 
-    rtabmap::CameraHandy camera(data);
+    rtabmap::CameraHandy camera(cfg, data);
 
     rtabmap::ParametersMap params;
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
@@ -83,10 +82,10 @@ void run(const Config& cfg, const Dataloader& data) {
     rtabmap::SensorData cameraData = camera.takeImage();
     while(cameraData.isValid()) {
         pose = odom->process(cameraData, &info);
-        if(rtabmap.process(cameraData, pose)) {
-            if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
+        if(!(info.lost || pose.isNull())) {
+            if(rtabmap.process(cameraData, pose)) if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
         }
-
+        
         cameraData = camera.takeImage();
     }
     rtabmap.close();
@@ -98,12 +97,68 @@ void run(const Config& cfg, const Dataloader& data) {
     UINFO("Finished SLAM with [%d] frames.", cameraData.id());
 }
 
+std::map<int, int> components(const std::map<int, rtabmap::Transform>& poses, const std::multimap<int, rtabmap::Link>& links) {
+    std::map<int, int> nodeGroups; // nodeId -> groupId
+    std::set<int> visitedNodes;
+
+    int groupId = 0;
+    for(const auto& [nodeId, _] : poses) {
+        if(visitedNodes.count(nodeId) == 0) {
+            std::stack<int> stack;
+            stack.push(nodeId);
+
+            while(!stack.empty()) {
+                int current = stack.top();
+                stack.pop();
+
+                if(visitedNodes.count(current)) continue;
+
+                visitedNodes.insert(current);
+                nodeGroups[current] = groupId;
+
+                auto range = links.equal_range(current);
+                for(auto it = range.first; it != range.second; ++it) {
+                    int neighbor = it->second.to(); // or .from() depending on Link struct
+                    if(poses.count(neighbor) && !visitedNodes.count(neighbor)) stack.push(neighbor);
+                }
+
+                // Also check reverse links (undirected graph)
+                for(const auto& [fromId, link] : links) {
+                    if(link.to() == current) {
+                        if(poses.count(fromId) && !visitedNodes.count(fromId)) stack.push(fromId);
+                    }
+                }
+            }
+
+            groupId++;
+        }
+    }
+
+    return nodeGroups;
+}
+
 void post(const Config& cfg, const Dataloader& data) {
     rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
 
     rtabmap::SensorData cameraData;
     if(driver->openConnection(data.getPathDB(), false)) {
         std::map<int, rtabmap::Transform> poses = driver->loadOptimizedPoses();
+
+        std::multimap<int, rtabmap::Link> links;
+        driver->getAllLinks(links);
+
+        std::map<int, int> nodeGroups = components(poses, links);
+
+        std::map<int, size_t> groupSizes;
+        for(const auto& [id, group] : nodeGroups) groupSizes[group]++;
+
+        int mainGroup; size_t mainGroupSize = 0;
+        for (const auto& [group, groupSize] : groupSizes) {
+            if (groupSize > mainGroupSize) {
+                mainGroup = group;
+                mainGroupSize = groupSize;
+            }
+        }
 
         size_t cloudIdx = 0;
         std::ostringstream cloudName;
@@ -123,6 +178,11 @@ void post(const Config& cfg, const Dataloader& data) {
             }
 
             driver->loadNodeData(node);
+
+            if(!nodeGroups.count(id) || nodeGroups[id] != mainGroup) {
+                UWARN("Node [%d] not in largest connected graph, skipping frame.", id);
+                continue;
+            }
 
             cameraData = node->sensorData();
             if(!cameraData.isValid()) {

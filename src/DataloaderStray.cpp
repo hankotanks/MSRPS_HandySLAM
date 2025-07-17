@@ -11,8 +11,11 @@
 #include <rtabmap/core/Transform.h>
 #include <rtabmap/utilite/ULogger.h>
 
-#include "Dataloader.h"
 #include "ext/lazycsv.h"
+
+#include "Dataloader.h"
+#include "MadgwickFilter.h"
+
 
 namespace fs = std::filesystem;
 
@@ -43,6 +46,7 @@ std::optional<rtabmap::Transform> parseCameraMatrix(
     return intrinsics;
 }
 
+// TODO: Make this a member function so I don't have to pass withIMU
 std::vector<rtabmap::IMUEvent> parseStrayEvents(
     const fs::path& pathOdometry, 
     const fs::path& pathIMU
@@ -61,26 +65,43 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
     lazycsv::parser<> parserIMU { pathIMU };
     std::vector<rtabmap::IMU> sensorData;
 
-    size_t stampIdx = 0;
+    q_est.q1 = 1.f;
+    q_est.q2 = 0.f;
+    q_est.q3 = 0.f;
+    q_est.q4 = 0.f;
+
+    size_t stampIdx = 0, iterIdx = 0;
     float t0 = std::numeric_limits<float>::max() * -1.f, tf;
-    for(const auto row : parserStamps) {
+    
+    float ax, ay, az, gx, gy, gz;
+    for(const auto row : parserIMU) {
         if(stampIdx >= stamps.size()) break;
+
         const auto raw = row.cells(0, 1, 2, 3, 4, 5, 6);
         tf = std::strtof(raw[0].raw().data(), &temp);
+
+        gx = std::strtof(raw[4].raw().data(), &temp);
+        gy = std::strtof(raw[5].raw().data(), &temp);
+        gz = std::strtof(raw[6].raw().data(), &temp);
+        ax = std::strtof(raw[1].raw().data(), &temp);
+        ay = std::strtof(raw[2].raw().data(), &temp);
+        az = std::strtof(raw[3].raw().data(), &temp);
+
+        if(iterIdx) imu_filter(ax, ay, az, gx, gy, gz, tf - t0);
+    
         if(stamps[stampIdx] < tf) {
             sensorData.emplace_back(
-                cv::Vec3d(
-                    std::strtof(raw[4].raw().data(), &temp), 
-                    std::strtof(raw[5].raw().data(), &temp), 
-                    std::strtof(raw[6].raw().data(), &temp)),
-                cv::Mat::eye(3, 3, CV_64F),
-                cv::Vec3d(
-                    std::strtof(raw[1].raw().data(), &temp), 
-                    std::strtof(raw[2].raw().data(), &temp), 
-                    std::strtof(raw[3].raw().data(), &temp)),
-                cv::Mat::eye(3, 3, CV_64F)
+                cv::Vec4d(q_est.q2, q_est.q3, q_est.q4, q_est.q1),
+                cv::Mat::eye(4, 4, CV_64F), // * 0.001,
+                cv::Vec3d(gx, gy, gz),
+                cv::Mat::eye(3, 3, CV_64F), // * 0.00225,
+                cv::Vec3d(ax, ay, az),
+                cv::Mat::eye(3, 3, CV_64F) // * 0.000225
             ); stampIdx++;
-        } t0 = tf;
+        } 
+
+        t0 = tf;
+        iterIdx++;
     }
 
     std::vector<rtabmap::IMUEvent> events;
