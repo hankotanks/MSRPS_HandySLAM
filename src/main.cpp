@@ -8,6 +8,7 @@
 #include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/DBDriverSqlite3.h>
 #include <rtabmap/core/SensorData.h>
+#include <rtabmap/core/Memory.h>
 #include <rtabmap/utilite/ULogger.h>
 
 #include "Config.h"
@@ -85,15 +86,18 @@ void run(const Config& cfg, const Dataloader& data) {
 
     rtabmap::SensorData cameraData = camera.takeImage(), cameraDataProcessed;
 
+    std::ofstream stamps(std::get<1>(cfg.getPaths()) / "stamps.csv");
+
+    int nodeIdPrev = 0;
+
     size_t currIdx = 0;
     while(cameraData.isValid()) {
+        rtabmap::IMUEvent eventCurr = events[currIdx];
         if(cfg.withIMU()) {
             q_est.q1 = posePrev.getQuaternionf().w();
             q_est.q2 = posePrev.getQuaternionf().x();
             q_est.q3 = posePrev.getQuaternionf().y();
             q_est.q4 = posePrev.getQuaternionf().z();
-
-            rtabmap::IMUEvent eventCurr = events[currIdx];
 
             const cv::Vec3d acc = eventCurr.getData().linearAcceleration();
             const cv::Vec3d gyr = eventCurr.getData().angularVelocity();
@@ -130,7 +134,15 @@ void run(const Config& cfg, const Dataloader& data) {
         
         pose = odom->process(cameraDataProcessed, &info);
         if(!(info.lost || pose.isNull())) {
-            if(rtabmap.process(cameraDataProcessed, pose)) if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
+            if(rtabmap.process(cameraDataProcessed, pose)) {
+                if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
+
+                int nodeId = rtabmap.getLastLocationId();
+                if(nodeId > 0 && nodeId != nodeIdPrev) {
+                    stamps << nodeId << ", " << std::fixed << std::setprecision(6) << eventCurr.getStamp() << std::endl;
+                    nodeId = nodeId;
+                }
+            }
             posePrev = pose;
         } else if(cfg.withIMU()) posePrev = rtabmap::Transform(posePrev.x(), posePrev.y(), posePrev.z(), q_est.q2, q_est.q3, q_est.q4, q_est.q1);
         
@@ -138,6 +150,7 @@ void run(const Config& cfg, const Dataloader& data) {
 
         currIdx++;
     }
+    stamps.close();
     rtabmap.close();
 
     delete odom;
@@ -241,7 +254,7 @@ void post(const Config& cfg, const Dataloader& data) {
             }
 
             cameraData.uncompressData();
-            writePose(pose, cameraData.stamp());
+            writePose(pose, node->id());
 
             if(cameraData.imageRaw().empty()) {
                 UWARN("Failed to retrieve data from node [%d], skipping frame.", id);

@@ -35,17 +35,17 @@ public:
         file_.close();
     }
 
-    void operator()(const rtabmap::Transform& pose, const double stamp) {
+    void operator()(const rtabmap::Transform& pose, const int nodeId) {
         auto t = pose.translation();
         auto q = pose.getQuaterniond();
-        file_ << std::setprecision(8) << std::fixed << stamp << ", ";
+        file_ << nodeId << ", ";
         file_ << std::setprecision(9) << std::fixed << t.x() << ", ";
         file_ << std::setprecision(9) << std::fixed << t.y() << ", ";
         file_ << std::setprecision(9) << std::fixed << t.z() << ", ";
         file_ << std::setprecision(9) << std::fixed << q.x() << ", ";
         file_ << std::setprecision(9) << std::fixed << q.y() << ", ";
         file_ << std::setprecision(9) << std::fixed << q.z() << ", ";
-        file_ << std::setprecision(9) << std::fixed << q.w() << ", " << std::endl;
+        file_ << std::setprecision(9) << std::fixed << q.w() << std::endl;
         poseCount_++;
     } 
 };
