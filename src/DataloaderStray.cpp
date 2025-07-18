@@ -14,8 +14,6 @@
 #include "ext/lazycsv.h"
 
 #include "Dataloader.h"
-#include "MadgwickFilter.h"
-
 
 namespace fs = std::filesystem;
 
@@ -65,11 +63,6 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
     lazycsv::parser<> parserIMU { pathIMU };
     std::vector<rtabmap::IMU> sensorData;
 
-    q_est.q1 = 1.f;
-    q_est.q2 = 0.f;
-    q_est.q3 = 0.f;
-    q_est.q4 = 0.f;
-
     size_t stampIdx = 0, iterIdx = 0;
     float t0 = std::numeric_limits<float>::max() * -1.f, tf;
     
@@ -87,16 +80,12 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
         ay = std::strtof(raw[2].raw().data(), &temp);
         az = std::strtof(raw[3].raw().data(), &temp);
 
-        if(iterIdx) imu_filter(ax, ay, az, gx, gy, gz, tf - t0);
-    
         if(stamps[stampIdx] < tf) {
             sensorData.emplace_back(
-                cv::Vec4d(q_est.q2, q_est.q3, q_est.q4, q_est.q1),
-                cv::Mat::eye(4, 4, CV_64F), // * 0.001,
                 cv::Vec3d(gx, gy, gz),
-                cv::Mat::eye(3, 3, CV_64F), // * 0.00225,
+                cv::Mat::eye(3, 3, CV_64F) * 0.00225,
                 cv::Vec3d(ax, ay, az),
-                cv::Mat::eye(3, 3, CV_64F) // * 0.000225
+                cv::Mat::eye(3, 3, CV_64F) * 0.000225
             ); stampIdx++;
         } 
 

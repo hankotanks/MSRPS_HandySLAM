@@ -14,14 +14,12 @@
 #include "ext/json.h"
 
 #include "PyScript.h"
-#include "MadgwickFilter.h"
 
 namespace fs = std::filesystem;
 
 // TODO: Make this a member function so I don't have to pass withIMU
 std::optional<std::pair<rtabmap::Transform, rtabmap::IMUEvent>> parseFrame(
-    const nlohmann::detail::iteration_proxy_value<nlohmann::detail::iter_impl<nlohmann::basic_json<>>>& frame,
-    const std::optional<float> prevStamp = std::nullopt
+    const nlohmann::detail::iteration_proxy_value<nlohmann::detail::iter_impl<nlohmann::basic_json<>>>& frame
 ) {
     const auto frameObject = frame.value();
 
@@ -59,16 +57,12 @@ std::optional<std::pair<rtabmap::Transform, rtabmap::IMUEvent>> parseFrame(
     if(gyro.size() != 3 || acc.size() != 3)
         return std::nullopt;
 
-    if(prevStamp) imu_filter(acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], stamp - (*prevStamp));
-
     // put it all together
-    rtabmap::IMU sensorData{
-        cv::Vec4d(q_est.q2, q_est.q3, q_est.q4, q_est.q1),
-        cv::Mat::eye(4, 4, CV_64F), // * 0.001,
+    rtabmap::IMU sensorData {
         cv::Vec3d(gyro[0], gyro[1], gyro[2]),
-        cv::Mat::eye(3, 3, CV_64F), // * 0.00225,
+        cv::Mat::eye(3, 3, CV_64F) * 0.0225,
         cv::Vec3d(acc[0], acc[1], acc[2]),
-        cv::Mat::eye(3, 3, CV_64F) // * 0.000225
+        cv::Mat::eye(3, 3, CV_64F) * 0.00225
     };
 
     return std::make_pair(intrinsics, rtabmap::IMUEvent(sensorData, stamp));
@@ -85,14 +79,9 @@ std::pair<rtabmap::Transform, std::vector<rtabmap::IMUEvent>> parseIntrinsicsAnd
     nlohmann::json jsonParser;
     jsonStream >> jsonParser;
 
-    q_est.q1 = 1.f;
-    q_est.q2 = 0.f;
-    q_est.q3 = 0.f;
-    q_est.q4 = 0.f;
-
     bool first = true;
     for(const auto& frame : jsonParser.items()) {
-        const auto frameData = first ? parseFrame(frame) : parseFrame(frame, events[events.size() - 1].getStamp());
+        const auto frameData = parseFrame(frame);
         if(frameData) {
             events.push_back(std::get<1>(*frameData));
             if(first) {

@@ -331,12 +331,14 @@ bool Dataloader::writeCalibration(
     file << fx  << ", " << 0.0 << ", " << cx  << ", ";
     file << 0.0 << ", " << fy  << ", " << cy  << ", ";
     file << 0.0 << ", " << 0.0 << ", " << 0.0 << " ]" << std::endl;
+#if 0
     file << "local_transform:" << std::endl;
     file << "   rows: 3" << std::endl;
     file << "   cols: 4" << std::endl;
     file << "   data: [  1.0,  0.0,  0.0, 0.0, " << std::endl;
     file << "            0.0,  1.0,  0.0, 0.0, " << std::endl;
     file << "            0.0,  0.0,  1.0, 0.0 ]" << std::endl;
+#endif
     file << "distortion_coefficients:" << std::endl;
     file << "   rows: 1" << std::endl;
     file << "   cols: 5" << std::endl;
@@ -384,11 +386,7 @@ bool Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
         streamIMU << std::fixed << std::setprecision(6) << sensorData.linearAcceleration()[2] << ", ";
         streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[0] << ", ";
         streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[1] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[2] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[0] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[1] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[2] << ", ";
-        streamIMU << std::fixed << std::setprecision(6) << sensorData.orientation()[3] << std::endl;
+        streamIMU << std::fixed << std::setprecision(6) << sensorData.angularVelocity()[2] << std::endl;
 
         streamStamps << std::fixed << std::setprecision(6) << event.getStamp() << std::endl;
     }
@@ -418,7 +416,7 @@ bool Dataloader::parseEvents() {
     for(const auto row : imuParser) {
         if(!(stampsStream >> stampCurrent)) return false;
 
-        const auto raw = row.cells(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+        const auto raw = row.cells(0, 1, 2, 3, 4, 5);
         lx = std::strtof(raw[0].raw().data(), &temp);
         if(temp == raw[0].raw().data()) return false;
         ly = std::strtof(raw[1].raw().data(), &temp);
@@ -432,18 +430,7 @@ bool Dataloader::parseEvents() {
         az = std::strtof(raw[5].raw().data(), &temp);
         if(temp == raw[5].raw().data()) return false;
 
-        qx = std::strtof(raw[6].raw().data(), &temp);
-        if(temp == raw[6].raw().data()) return false;
-        qy = std::strtof(raw[7].raw().data(), &temp);
-        if(temp == raw[7].raw().data()) return false;
-        qz = std::strtof(raw[8].raw().data(), &temp);
-        if(temp == raw[8].raw().data()) return false;
-        qw = std::strtof(raw[9].raw().data(), &temp);
-        if(temp == raw[9].raw().data()) return false;
-
         imuCurrent = rtabmap::IMU(
-            cv::Vec4d(qx, qy, qz, qw),
-            cv::Mat::eye(4, 4, CV_64F),
             cv::Vec3d(ax, ay, az),
             cv::Mat::eye(3, 3, CV_64F),
             cv::Vec3d(lx, ly, lz),

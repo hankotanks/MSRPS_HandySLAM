@@ -16,6 +16,7 @@
 #include "DataloaderScanNet.h"
 #include "PoseStream.h"
 #include "CloudStream.h"
+#include "MadgwickFilter.h"
 
 #define CLOUD_NAME "out"
 
@@ -53,13 +54,13 @@ void run(const Config& cfg, const Dataloader& data) {
         return;
     }
 
-    rtabmap::CameraHandy camera(cfg, data);
+    rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDEnabled(), "true"));
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "true"));
   	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
-	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "1"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRegStrategy(), "0"));
 	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDNeighborLinkRefining(), "true"));
 	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), "6"));
@@ -71,22 +72,71 @@ void run(const Config& cfg, const Dataloader& data) {
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSaveDepth16Format(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIntermediateNodeDataKept(), "true"));
 
+    const std::vector<rtabmap::IMUEvent> events = data.getEvents();
+
     rtabmap::Odometry* odom = rtabmap::Odometry::create(params);
+    odom->reset();
     rtabmap::OdometryInfo info;
 
     rtabmap::Rtabmap rtabmap;
     rtabmap.init(params, data.getPathDB());
 
-    rtabmap::Transform pose;
+    rtabmap::Transform pose, posePrev = odom->getPose();
 
-    rtabmap::SensorData cameraData = camera.takeImage();
+    rtabmap::SensorData cameraData = camera.takeImage(), cameraDataProcessed;
+
+    size_t currIdx = 0;
     while(cameraData.isValid()) {
-        pose = odom->process(cameraData, &info);
-        if(!(info.lost || pose.isNull())) {
-            if(rtabmap.process(cameraData, pose)) if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
+        if(cfg.withIMU()) {
+            q_est.q1 = posePrev.getQuaternionf().w();
+            q_est.q2 = posePrev.getQuaternionf().x();
+            q_est.q3 = posePrev.getQuaternionf().y();
+            q_est.q4 = posePrev.getQuaternionf().z();
+
+            rtabmap::IMUEvent eventCurr = events[currIdx];
+
+            const cv::Vec3d acc = eventCurr.getData().linearAcceleration();
+            const cv::Vec3d gyr = eventCurr.getData().angularVelocity();
+
+            if(currIdx > 0) {
+                double stampCurr = events[currIdx].getStamp();
+                double stampPrev = events[currIdx - 1].getStamp();
+
+                UINFO("Integrating orientation over [%lf] seconds.", stampCurr - stampPrev);
+                float rPrev, pPrev, yPrev, rCurr, pCurr, yCurr;
+                eulerAngles(q_est, &rPrev, &pPrev, &yPrev);
+
+                imu_filter(acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2], static_cast<float>(stampCurr - stampPrev));
+
+                eulerAngles(q_est, &rCurr, &pCurr, &yCurr);
+                UINFO("r: [%.4f] to [%.4f]", rPrev, rCurr);
+                UINFO("p: [%.4f] to [%.4f]", pPrev, pCurr);
+                UINFO("y: [%.4f] to [%.4f]", yPrev, yCurr);
+            }
+
+            cameraDataProcessed = cameraData;
+            cameraDataProcessed.setIMU(rtabmap::IMU {
+                cv::Vec4d(q_est.q2, q_est.q3, q_est.q4, q_est.q1),
+                cv::Mat::eye(4, 4, CV_64F) * 0.003,
+                gyr,
+                eventCurr.getData().angularVelocityCovariance(),
+                acc,
+                eventCurr.getData().linearAccelerationCovariance()
+            });
+        } else {
+            cameraDataProcessed = cameraData;
+            cameraDataProcessed.setIMU(events[currIdx].getData());
         }
         
+        pose = odom->process(cameraDataProcessed, &info);
+        if(!(info.lost || pose.isNull())) {
+            if(rtabmap.process(cameraDataProcessed, pose)) if(rtabmap.getLoopClosureId() > 0) UINFO("Loop closure detected!");
+            posePrev = pose;
+        } else if(cfg.withIMU()) posePrev = rtabmap::Transform(posePrev.x(), posePrev.y(), posePrev.z(), q_est.q2, q_est.q3, q_est.q4, q_est.q1);
+        
         cameraData = camera.takeImage();
+
+        currIdx++;
     }
     rtabmap.close();
 
