@@ -12,25 +12,21 @@
 #include <rtabmap/core/SensorData.h>
 #include <rtabmap/core/util3d.h>
 
-#include "Config.h"
-
 namespace fs = std::filesystem;
 
 class CloudStream {
 private:
     std::fstream file_;
     fs::path filePath_;
-    size_t count_ = 0;
+    size_t count_ = 0, index_;
     const size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::streampos countPos_;
 public:
-    CloudStream(const Config& cfg, const std::string& cloudName) {
-        if(!cfg.savePoints()) {
-            UWARN("CloudStream should only be constructed if '--save' is set.");
-            return;
-        }
+    CloudStream(const fs::path& pathCloud, const size_t index) : index_(index) {
+        std::ostringstream cloudName;
+        cloudName << "out_" << index << ".ply";
 
-        filePath_ = std::get<1>(cfg.getPaths()) / "cloud" / (cloudName + ".ply");
+        filePath_ = pathCloud / cloudName.str();
         if(!fs::exists(filePath_.parent_path())) fs::create_directories(filePath_.parent_path());
         file_ = std::fstream(filePath_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);

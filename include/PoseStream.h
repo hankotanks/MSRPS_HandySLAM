@@ -7,8 +7,6 @@
 #include <rtabmap/core/Transform.h>
 #include <rtabmap/utilite/ULogger.h>
 
-#include "Config.h"
-
 namespace fs = std::filesystem;
 
 class PoseStream {
@@ -17,8 +15,8 @@ private:
     std::ofstream file_;
     size_t poseCount_ = 0;
 public:
-    PoseStream(const Config& cfg) {
-        filePath_ = std::get<1>(cfg.getPaths()) / "poses.csv";
+    PoseStream(const fs::path& pathOut) {
+        filePath_ = pathOut / "poses.csv";
         file_ = std::ofstream(filePath_);
     }
 

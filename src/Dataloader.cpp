@@ -21,13 +21,13 @@
 namespace fs = std::filesystem;
 
 Dataloader::Dataloader(const Config& cfg) : 
-    pathData_(std::get<0>(cfg.getPaths())),
-    pathTemp_(std::get<1>(cfg.getPaths()) / "temp"),
-    pathColor_(std::get<1>(cfg.getPaths()) / "temp" / "rgb"),
-    pathDepth_(std::get<1>(cfg.getPaths()) / "temp" / "depth"),
-    upscale_(cfg.upscaleWithPromptDA()),
-    rebuild_(cfg.forceRebuild()) {
-    if(cfg.skipSLAM() && fs::exists(Dataloader::getPathDB())) {
+    pathData_(cfg.pathData),
+    pathTemp_(cfg.pathOut / "temp"),
+    pathColor_(cfg.pathOut / "temp" / "rgb"),
+    pathDepth_(cfg.pathOut / "temp" / "depth"),
+    upscale_(cfg.upscalingMethod == PROMPTDA),
+    rebuild_(cfg.forceRebuild) {
+    if(cfg.skipSLAM && fs::exists(Dataloader::getPathDB())) {
         UINFO("Skipping SLAM, beginning postprocessing.");
         skip_ = true;
         return;

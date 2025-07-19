@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
 	ULogger::setLevel(ULogger::kInfo);
 
     Config cfg(argc, argv);
-    switch(cfg.dataSource()) {
+    switch(cfg.dataSource) {
         case STRAY: {
             DataloaderStray dataStray(cfg);
             if(dataStray.init()) run(cfg, dataStray);
@@ -86,14 +86,14 @@ void run(const Config& cfg, const Dataloader& data) {
 
     rtabmap::SensorData cameraData = camera.takeImage(), cameraDataProcessed;
 
-    std::ofstream stamps(std::get<1>(cfg.getPaths()) / "stamps.csv");
+    std::ofstream stamps(cfg.pathOut / "stamps.csv");
 
     int nodeIdPrev = 0;
 
     size_t currIdx = 0;
     while(cameraData.isValid()) {
         rtabmap::IMUEvent eventCurr = events[currIdx];
-        if(cfg.withIMU()) {
+        if(cfg.withIMU) {
             q_est.q1 = posePrev.getQuaternionf().w();
             q_est.q2 = posePrev.getQuaternionf().x();
             q_est.q3 = posePrev.getQuaternionf().y();
@@ -144,7 +144,7 @@ void run(const Config& cfg, const Dataloader& data) {
                 }
             }
             posePrev = pose;
-        } else if(cfg.withIMU()) posePrev = rtabmap::Transform(posePrev.x(), posePrev.y(), posePrev.z(), q_est.q2, q_est.q3, q_est.q4, q_est.q1);
+        } else if(cfg.withIMU) posePrev = rtabmap::Transform(posePrev.x(), posePrev.y(), posePrev.z(), q_est.q2, q_est.q3, q_est.q4, q_est.q1);
         
         cameraData = camera.takeImage();
 
@@ -224,13 +224,10 @@ void post(const Config& cfg, const Dataloader& data) {
         }
 
         size_t cloudIdx = 0;
-        std::ostringstream cloudName;
-        cloudName << CLOUD_NAME << cloudIdx;
-
         std::optional<CloudStream> writeFrame = std::nullopt;
-        if(cfg.savePoints()) writeFrame = CloudStream(cfg, cloudName.str());
+        if(cfg.pathCloud) writeFrame = CloudStream(*cfg.pathCloud, cloudIdx);
 
-        PoseStream writePose(cfg);
+        PoseStream writePose(cfg.pathOut);
 
         rtabmap::Signature* node;
         for(const auto& [id, pose] : poses) {
@@ -268,10 +265,7 @@ void post(const Config& cfg, const Dataloader& data) {
                 writeFrameTemp(cameraData, pose);
                 if(writeFrameTemp.pointCount() > MAX_POINTS) {
                     writeFrameTemp.close();
-                    cloudName.str("");
-                    cloudName.clear();
-                    cloudName << CLOUD_NAME << (++cloudIdx);
-                    writeFrame = CloudStream(cfg, cloudName.str());
+                    writeFrame = CloudStream(*cfg.pathCloud, ++cloudIdx);
                 }
             }
             
