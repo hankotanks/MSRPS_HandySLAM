@@ -38,7 +38,7 @@ if __name__ == '__main__':
     print('INPUT: <transform> (Ctrl+D to submit):')
     t = numpy.fromstring(sys.stdin.read(), sep = ' ').reshape((4, 4))
 
-    print(end = '\n\n\n')
+    print(end = '\n\n')
     print('Transform:')
     print(t, end = '\n\n')
     

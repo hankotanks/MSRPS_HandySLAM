@@ -33,6 +33,7 @@ private:
     bool upscale_;
     DataloaderValidation validation_;
     fs::path pathData_, pathTemp_;
+    fs::path pathDB_;
     fs::path pathColor_, pathDepth_;
     std::vector<rtabmap::IMUEvent> events_;
 public:
@@ -75,7 +76,7 @@ public:
     size_t getFrameCount() const { return validation_.frameCount(); }
     // path getters
     fs::path getPathData() const { return pathData_; }
-    fs::path getPathDB() const { return (pathTemp_ / "temp.db"); }
+    fs::path getPathDB() const { return pathDB_; }
     fs::path getPathIMU() const { return (pathTemp_ / "imu.csv"); }
     fs::path getPathColor() const { return pathColor_; }
     fs::path getPathDepth() const { return pathDepth_; }

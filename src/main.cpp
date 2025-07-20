@@ -223,11 +223,10 @@ void post(const Config& cfg, const Dataloader& data) {
             }
         }
 
-        size_t cloudIdx = 0;
-        std::optional<CloudStream> writeFrame = std::nullopt;
-        if(cfg.pathCloud) writeFrame = CloudStream(*cfg.pathCloud, cloudIdx);
-
         PoseStream writePose(cfg.pathOut);
+
+        std::optional<CloudStream> writeFrame = std::nullopt;
+        if(cfg.pathCloud) writeFrame.emplace(*(cfg.pathCloud), MAX_POINTS);
 
         rtabmap::Signature* node;
         for(const auto& [id, pose] : poses) {
@@ -260,14 +259,7 @@ void post(const Config& cfg, const Dataloader& data) {
 
             UINFO("Writing node [%d].", id);
 
-            if(writeFrame) {
-                CloudStream& writeFrameTemp = *writeFrame;
-                writeFrameTemp(cameraData, pose);
-                if(writeFrameTemp.pointCount() > MAX_POINTS) {
-                    writeFrameTemp.close();
-                    writeFrame = CloudStream(*cfg.pathCloud, ++cloudIdx);
-                }
-            }
+            if(writeFrame) (*writeFrame) << std::make_pair(cameraData, pose);
             
             delete node;
         }

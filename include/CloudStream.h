@@ -17,18 +17,20 @@ namespace fs = std::filesystem;
 class CloudStream {
 private:
     std::fstream file_;
-    fs::path filePath_;
-    size_t count_ = 0, index_;
+    size_t fileIndex_;
+    fs::path pathCloud_, pathFile_;
+    size_t count_ = 0;
+    size_t countMax_;
     const size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::streampos countPos_;
-public:
-    CloudStream(const fs::path& pathCloud, const size_t index) : index_(index) {
+private:
+    CloudStream(const fs::path& pathCloud, const size_t maxPoints, const size_t index) : fileIndex_(index), pathCloud_(pathCloud), countMax_(maxPoints) {
         std::ostringstream cloudName;
         cloudName << "out_" << index << ".ply";
 
-        filePath_ = pathCloud / cloudName.str();
-        if(!fs::exists(filePath_.parent_path())) fs::create_directories(filePath_.parent_path());
-        file_ = std::fstream(filePath_, std::ios::in | std::ios::out | 
+        pathFile_ = pathCloud / cloudName.str();
+        if(!fs::exists(pathFile_.parent_path())) fs::create_directories(pathFile_.parent_path());
+        file_ = std::fstream(pathFile_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);
 
         file_ << "ply" << std::endl;
@@ -46,36 +48,33 @@ public:
         file_ << "end_header" << std::endl;
     }
 
-    CloudStream(CloudStream&& other) noexcept : 
-        filePath_(std::move(other.filePath_)),
-        count_(other.count_), 
-        countPos_(other.countPos_) {
-        file_ = std::move(other.file_);
-        other.count_ = 0;
-        other.countPos_ = 0;
-    }
-
     CloudStream& operator=(CloudStream&& other) noexcept {
         if(this == &other) return *this;
 
         file_.close();
         file_ = std::move(other.file_);
-        filePath_ = std::move(other.filePath_);
+
+        fileIndex_ = other.fileIndex_;
+
+        pathCloud_ = std::move(other.pathCloud_);
+        pathFile_ = std::move(other.pathFile_);
 
         count_ = other.count_;
+        countMax_ = other.countMax_;
         countPos_ = other.countPos_;
-
-        other.count_ = 0;
-        other.countPos_ = 0;
 
         return *this;
     }
 
-    CloudStream(const CloudStream& other) = delete;
-    CloudStream& operator=(const CloudStream& other) = delete;
+public:
+    CloudStream(const fs::path& pathCloud, const size_t maxPoints) : CloudStream(pathCloud, maxPoints, 0) { /* STUB */ }
 
-    ~CloudStream() {
-        if(file_.is_open()) CloudStream::close();
+    CloudStream(CloudStream&&) = delete;
+    CloudStream(const CloudStream&) = delete;
+    CloudStream& operator=(const CloudStream&) = delete;
+
+    ~CloudStream() { 
+        if(file_.is_open()) CloudStream::close(); 
     }
 
 public:
@@ -85,7 +84,7 @@ public:
             return;
         }
 
-        UINFO("Making final modifications to output point cloud [%s].", filePath_.c_str());
+        UINFO("Making final modifications to output point cloud [%s].", pathFile_.c_str());
 
         file_.clear();
         file_.seekp(countPos_);
@@ -95,27 +94,28 @@ public:
         file_.close();
     }
 
-    size_t pointCount() { return count_; }
+public:
+    friend CloudStream& operator<<(CloudStream& stream, const std::pair<const rtabmap::SensorData&, const rtabmap::Transform&>& frame) {
+        const auto& [sensorData, pose] = frame;
 
-    void operator()(const rtabmap::SensorData& sensorData, const rtabmap::Transform& pose) {
-        if(!file_.is_open()) {
+        if(!stream.file_.is_open()) {
             UWARN("CloudStream is closed, data cannot be written to it.");
-            return;
+            return stream;
         }
 
         if(!sensorData.isValid()) {
             UWARN("CloudStream received invalid SensorData. Skipping frame.");
-            return;
+            return stream;
         }
 
-        UINFO("Writing frame to output point cloud [%s].", filePath_.c_str());
+        UINFO("Writing frame to output point cloud [%s].", stream.pathFile_.c_str());
 
         std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> cloudList = \
             rtabmap::util3d::cloudsRGBFromSensorData(sensorData);
 
         if(cloudList.empty()) {
             UINFO("Frame is empty, skipping.");
-            return;
+            return stream;
         }
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudList[0];
@@ -125,19 +125,25 @@ public:
         pcl::transformPointCloud(*cloud, *cloudGlobal, pose.toEigen3f());
 
         for(const auto& point : cloudGlobal->points) {
-            file_.write(reinterpret_cast<const char*>(&point.x), sizeof(float));
-            file_.write(reinterpret_cast<const char*>(&point.y), sizeof(float));
-            file_.write(reinterpret_cast<const char*>(&point.z), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.x), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.y), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.z), sizeof(float));
 
-            file_.write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
-            file_.write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
-            file_.write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
         }
-        file_.flush();
 
-        count_ += cloudGlobal->points.size();
+        stream.file_.flush();
+        stream.count_ += cloudGlobal->points.size();
 
-        UINFO("Output point cloud [%s] now has [%zu] points.", filePath_.c_str(), count_);      
+        UINFO("Output point cloud [%s] now has [%zu] points.", stream.pathFile_.c_str(), stream.count_);  
+        if(stream.count_ > stream.countMax_) {
+            stream.close();
+            stream = std::move(CloudStream(stream.pathCloud_, stream.countMax_, stream.fileIndex_ + 1));
+        }  
+
+        return stream;  
     }
 };
 

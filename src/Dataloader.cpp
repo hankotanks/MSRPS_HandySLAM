@@ -22,15 +22,18 @@ namespace fs = std::filesystem;
 
 Dataloader::Dataloader(const Config& cfg) : 
     pathData_(cfg.pathData),
-    pathTemp_(cfg.pathOut / "temp"),
-    pathColor_(cfg.pathOut / "temp" / "rgb"),
-    pathDepth_(cfg.pathOut / "temp" / "depth"),
+    pathTemp_(cfg.pathData / "temp"),
+    pathDB_(cfg.pathOut / "temp.db"),
+    pathColor_(cfg.pathData / "temp" / "rgb"),
+    pathDepth_(cfg.pathData / "temp" / "depth"),
     upscale_(cfg.upscalingMethod == PROMPTDA),
     rebuild_(cfg.forceRebuild) {
-    if(cfg.skipSLAM && fs::exists(Dataloader::getPathDB())) {
-        UINFO("Skipping SLAM, beginning postprocessing.");
-        skip_ = true;
-        return;
+    if(cfg.skipSLAM) {
+        if(fs::exists(Dataloader::getPathDB())) {
+            UINFO("Skipping SLAM, beginning postprocessing.");
+            skip_ = true;
+            return;
+        } else UWARN("Can't skip SLAM without prebuilt database [%s].", pathDB_.c_str());
     }
 
     if(rebuild_ || !fs::exists(pathTemp_)) {
@@ -41,11 +44,13 @@ Dataloader::Dataloader(const Config& cfg) :
     }
 
     validation_ = Dataloader::validate(true);
-    rebuild_ |= !(validation_.valid());
+
       
-    if(fs::exists(Dataloader::getPathDB())) fs::remove(Dataloader::getPathDB());
+    if(fs::exists(pathDB_)) fs::remove(pathDB_);
+
+    rebuild_ |= !(validation_.valid());
     if(!rebuild_) {
-        if(Dataloader::parseEvents()) invalid_ = true;
+        if(!Dataloader::parseEvents()) invalid_ = true;
         return;
     }
 }
@@ -144,7 +149,7 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
     validation.stampCount = validateLineCount(Dataloader::getPathStamps());
 
     if(validation.stampCount < frameCount) {
-        if(!silent) UERROR("Imagery count [%zu color, %zu depth] does not match number of timestamps [%zu] in [%s].", 
+        if(!silent) UERROR("Imagery count [%zu color, %zu depth] is greater than the number of timestamps [%zu] in [%s].", 
             validation.colorFrameCount, validation.depthFrameCount, validation.stampCount, Dataloader::getPathStamps().c_str());
         validation.events = true;
     }
@@ -157,7 +162,7 @@ DataloaderValidation Dataloader::validate(const bool silent) const {
 
     validation.sensorDataCount = validateLineCount(Dataloader::getPathIMU());
     if(validation.sensorDataCount < frameCount) {
-        if(!silent) UERROR("Imagery count [%zu] does not match number of IMU entries [%zu] in [%s].", 
+        if(!silent) UERROR("Imagery count [%zu] is greater than the number of IMU entries [%zu] in [%s].", 
             validation.colorFrameCount, validation.sensorDataCount, Dataloader::getPathIMU().c_str());
         validation.events = true;
     }
