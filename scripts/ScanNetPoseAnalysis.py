@@ -24,11 +24,9 @@ def rotation(deg, axis = 'x'):
     return t
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        print(f'USAGE: {sys.argv[0]} <scene-path> <out-path> <name>')
+    if len(sys.argv) != 3:
+        print(f'USAGE: {sys.argv[0]} <scene-path> <out-path>')
         sys.exit(1)
-
-    name = sys.argv[3]
 
     path_gt = os.path.join(sys.argv[1], 'iphone', 'pose_intrinsic_imu.json')
     if not os.path.exists(path_gt):
@@ -90,13 +88,12 @@ if __name__ == '__main__':
     poses_pos = np.array([pose[1][:3, 3] for pose in poses])
     poses_pos_gt = np.array([pose[1][:3, 3] for pose in poses_gt])
 
-    ax.plot(poses_pos[:, 0], poses_pos[:, 1], poses_pos[:, 2], 'r-', label=f'{name}')
+    ax.plot(poses_pos[:, 0], poses_pos[:, 1], poses_pos[:, 2], 'r-', label='SLAM')
     ax.plot(poses_pos_gt[:, 0], poses_pos_gt[:, 1], poses_pos_gt[:, 2], 'b-', label='ground truth')
 
     ax.set_xlabel('x [m]')
     ax.set_ylabel('y [m]')
     ax.set_zlabel('z [m]')
-    ax.set_title(f'Trajectories [{name}]')
     ax.legend()
     plt.show()
 
@@ -117,22 +114,15 @@ if __name__ == '__main__':
 
     errors_x, errors_y, errors_z = np.array(errors_x), np.array(errors_y), np.array(errors_z)
 
-    fig, axs = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    fig, axs = plt.subplots(1, 1, figsize=(12, 8), sharex=True)
 
-    axs[0].plot(timestamps, errors_x, label='X', color='r')
-    axs[0].set_ylabel('x [m]')
-    axs[0].grid()
-
-    axs[1].plot(timestamps, errors_y, label='Y', color='g')
-    axs[1].set_ylabel('y [m]')
-    axs[1].grid()
-
-    axs[2].plot(timestamps, errors_z, label='Z', color='b')
-    axs[2].set_ylabel('z [m]')
-    axs[2].set_xlabel('Timestamp')
-    axs[2].grid()
-
-    plt.suptitle(f'Positional Drift [{name}]')
+    axs.plot(timestamps, errors_x, label='X', color='r')
+    axs.plot(timestamps, errors_y, label='Y', color='g')
+    axs.plot(timestamps, errors_z, label='Z', color='b')
+    axs.set_ylabel('Drift [m]')
+    axs.set_xlabel('Timestamps [s]')
+    axs.grid()
+    plt.legend()
     plt.tight_layout()
     plt.show()
 
