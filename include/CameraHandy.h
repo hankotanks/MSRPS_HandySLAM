@@ -14,10 +14,9 @@ namespace rtabmap {
     class CameraHandy: public CameraRGBDImages {
     public:
         CameraHandy(const Dataloader& data) : 
-            CameraRGBDImages(data.getPathColor().string(), data.getPathDepth().string()) {
-            const auto [pathCalibration, cameraName] = data.getPathCalibration();
-            CameraRGBDImages::init(pathCalibration.string(), cameraName);
-            CameraImages::setTimestamps(false, data.getPathStamps().string());
+            CameraRGBDImages(data.getConfig().pathImagesColor.string(), data.getConfig().pathImagesDepth.string()) {
+            CameraRGBDImages::init(data.getConfig().pathCalibration.parent_path(), "handy_camera");
+            CameraImages::setTimestamps(false, data.getConfig().pathStamps.string());
         }
 
         SensorData takeImage(SensorCaptureInfo* info = 0) {

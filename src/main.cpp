@@ -23,7 +23,7 @@
 
 #define MAX_POINTS 20000000
 
-void run(const Config&, const Dataloader&);
+void run(const Dataloader&);
 
 int main(int argc, char* argv[]) {
     ULogger::setType(ULogger::kTypeConsole);
@@ -33,12 +33,12 @@ int main(int argc, char* argv[]) {
     switch(cfg.dataSource) {
         case STRAY: {
             DataloaderStray dataStray(cfg);
-            if(dataStray.init()) run(cfg, dataStray);
+            if(dataStray.init()) run(dataStray);
             break;
         }
         case SCANNET: {
             DataloaderScanNet dataScanNet(cfg);
-            if(dataScanNet.init()) run(cfg, dataScanNet);
+            if(dataScanNet.init()) run(dataScanNet);
             break;
         }
         default: UERROR("Unreachable!");
@@ -47,11 +47,11 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void post(const Config&, const Dataloader&);
+void post(const Dataloader&);
 
-void run(const Config& cfg, const Dataloader& data) {
-    if(data.skipSLAM()) {
-        post(cfg, data);
+void run(const Dataloader& data) {
+    if(data.getConfig().post) {
+        post(data);
         return;
     }
 
@@ -73,27 +73,29 @@ void run(const Config& cfg, const Dataloader& data) {
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSaveDepth16Format(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIntermediateNodeDataKept(), "true"));
 
-    const std::vector<rtabmap::IMUEvent> events = data.getEvents();
+    std::optional<std::vector<rtabmap::IMUEvent>> eventsOpt = data.parseEvents();
+    std::vector<rtabmap::IMUEvent> events;
+    if(eventsOpt) events = std::move(*eventsOpt);
 
     rtabmap::Odometry* odom = rtabmap::Odometry::create(params);
     odom->reset();
     rtabmap::OdometryInfo info;
 
     rtabmap::Rtabmap rtabmap;
-    rtabmap.init(params, data.getPathDB());
+    rtabmap.init(params, data.getConfig().pathDB);
 
     rtabmap::Transform pose, posePrev = odom->getPose();
 
     rtabmap::SensorData cameraData = camera.takeImage(), cameraDataProcessed;
 
-    std::ofstream stamps(cfg.pathOut / "stamps.csv");
+    std::ofstream stamps(data.getConfig().pathOut / "stamps.csv");
 
     int nodeIdPrev = 0;
 
     size_t currIdx = 0;
     while(cameraData.isValid()) {
         rtabmap::IMUEvent eventCurr = events[currIdx];
-        if(cfg.withIMU) {
+        if(data.getConfig().integrated) {
             q_est.q1 = posePrev.getQuaternionf().w();
             q_est.q2 = posePrev.getQuaternionf().x();
             q_est.q3 = posePrev.getQuaternionf().y();
@@ -144,7 +146,9 @@ void run(const Config& cfg, const Dataloader& data) {
                 }
             }
             posePrev = pose;
-        } else if(cfg.withIMU) posePrev = rtabmap::Transform(posePrev.x(), posePrev.y(), posePrev.z(), q_est.q2, q_est.q3, q_est.q4, q_est.q1);
+        } else if(data.getConfig().integrated) posePrev = rtabmap::Transform(
+            posePrev.x(), posePrev.y(), posePrev.z(), 
+            q_est.q2, q_est.q3, q_est.q4, q_est.q1);
         
         cameraData = camera.takeImage();
 
@@ -155,7 +159,7 @@ void run(const Config& cfg, const Dataloader& data) {
 
     delete odom;
 
-    post(cfg, data);
+    post(data);
    
     UINFO("Finished SLAM with [%d] frames.", cameraData.id());
 }
@@ -200,11 +204,11 @@ std::map<int, int> components(const std::map<int, rtabmap::Transform>& poses, co
     return nodeGroups;
 }
 
-void post(const Config& cfg, const Dataloader& data) {
+void post(const Dataloader& data) {
     rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
 
     rtabmap::SensorData cameraData;
-    if(driver->openConnection(data.getPathDB(), false)) {
+    if(driver->openConnection(data.getConfig().pathDB, false)) {
         std::map<int, rtabmap::Transform> poses = driver->loadOptimizedPoses();
 
         std::multimap<int, rtabmap::Link> links;
@@ -223,10 +227,10 @@ void post(const Config& cfg, const Dataloader& data) {
             }
         }
 
-        PoseStream writePose(cfg.pathOut);
+        PoseStream writePose(data.getConfig().pathOut);
 
         std::optional<CloudStream> writeFrame = std::nullopt;
-        if(cfg.pathCloud) writeFrame.emplace(*(cfg.pathCloud), MAX_POINTS);
+        if(data.getConfig().pathCloud) writeFrame.emplace(*(data.getConfig().pathCloud), MAX_POINTS);
 
         rtabmap::Signature* node;
         for(const auto& [id, pose] : poses) {
@@ -265,7 +269,7 @@ void post(const Config& cfg, const Dataloader& data) {
         }
 
         driver->closeConnection();
-    } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getPathDB().c_str());
+    } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getConfig().pathDB.c_str());
 
     delete driver;
 

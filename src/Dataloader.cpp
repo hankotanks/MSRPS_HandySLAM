@@ -1,183 +1,38 @@
 #include "Dataloader.h"
 
-#include <algorithm>
-#include <vector>
 #include <fstream>
-#include <filesystem>
-#include <iostream>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 
+#include <rtabmap/core/Transform.h>
 #include <rtabmap/core/IMU.h>
-#include <rtabmap/utilite/ULogger.h>
 
 #include "ext/lazycsv.h"
 
-#include "Config.h"
 #include "PyScript.h"
 
-namespace fs = std::filesystem;
-
-Dataloader::Dataloader(const Config& cfg) : 
-    pathData_(cfg.pathData),
-    pathTemp_(cfg.pathData / "temp"),
-    pathDB_(cfg.pathOut / "temp.db"),
-    pathColor_(cfg.pathData / "temp" / "rgb"),
-    pathDepth_(cfg.pathData / "temp" / "depth"),
-    upscale_(cfg.upscalingMethod == PROMPTDA),
-    rebuild_(cfg.forceRebuild) {
-    if(cfg.skipSLAM) {
-        if(fs::exists(Dataloader::getPathDB())) {
-            UINFO("Skipping SLAM, beginning postprocessing.");
-            skip_ = true;
-            return;
-        } else UWARN("Can't skip SLAM without prebuilt database [%s].", pathDB_.c_str());
-    }
-
-    if(rebuild_ || !fs::exists(pathTemp_)) {
-        if(fs::exists(pathTemp_)) fs::remove_all(pathTemp_);
-        fs::create_directories(pathTemp_);
-        fs::create_directories(pathColor_);
-        fs::create_directories(pathDepth_);
-    }
-
-    validation_ = Dataloader::validate(true);
-
-      
-    if(fs::exists(pathDB_)) fs::remove(pathDB_);
-
-    rebuild_ |= !(validation_.valid());
-    if(!rebuild_) {
-        if(!Dataloader::parseEvents()) invalid_ = true;
-        return;
-    }
-}
-
-size_t validateImagery(const fs::path& path) {
-    if(!fs::exists(path)) return 0;
-
-    std::vector<fs::path> pathImages;
-
-    for(const auto& entry : fs::directory_iterator(path)) {
-        if(entry.path().extension() == ".png") pathImages.push_back(entry.path());
-    }
-
-    std::sort(pathImages.begin(), pathImages.end());
-
-    size_t imageCount = pathImages.size();
-    for(size_t i = 0; i < imageCount; ++i) {
-        std::string imageName = pathImages[i].filename();
-        std::stringstream imageNameExpected;
-        imageNameExpected << std::setw(6) << std::setfill('0') << i << ".png";
-
-        if(imageName != imageNameExpected.str()) return 0;
-    }
-
-    return imageCount;
-}
-
-size_t validateLineCount(const fs::path& path, const bool hasHeader = false) {
-    if(!fs::exists(path)) return 0;
-
-    std::ifstream file(path);  // Open the file
-    if(!file.is_open()) {
-        UERROR("Failed to open [%s].", path.c_str());
-        return 0;
-    }
-
-    size_t lineCount = 0, emptyCount = 0;
-
-    std::string line;
-    bool lineHadContent = false, lineEmptyAfterContent = false;
-    while(std::getline(file, line)) {
-        if(std::all_of(line.begin(), line.end(), isspace)) {
-            if(lineHadContent) lineEmptyAfterContent = true;
-        } else {
-            if(lineEmptyAfterContent) return 0;
-            lineHadContent = true;
-            lineCount++;
+bool Dataloader::init() {
+        if(cfg_.post) return true;
+        if(!process()) {
+            UERROR("Loading scene data failed [%s].", cfg_.pathData.c_str());
+            return false;
         }
-    }
-    file.close();
-
-    if(lineCount == 0) return 0;
-
-    return hasHeader ? (lineCount - 1) : lineCount;
-}
-
-// returns truthy if the data at pathTemp_ is valid
-DataloaderValidation Dataloader::validate(const bool silent) const {
-    DataloaderValidation validation;
-
-    if(!fs::exists(pathTemp_)) {
-        if(!silent) UERROR("Skipping validation, temp folder does not exist [%s].", 
-            pathTemp_.c_str());
-        validation.fullRebuild = true;
-        return validation;
+        if(!cfg_.validate()) {
+            UERROR("Data validation failed.");
+            return false;
+        }
+        return true;
     }
 
-    if(invalid_) {
-        if(!silent) UERROR("Failed to parse IMU data [%s] and timestamps [%s].",
-            Dataloader::getPathIMU().c_str(), Dataloader::getPathStamps().c_str());
-        validation.events = true;
-    }
 
-    if(!silent) UINFO("Beginning data validation.");
+cv::Size Dataloader::queryImagesColor(const fs::path& pathImagesColorIn) const {
+    UINFO("Querying dimensions of color imagery [%s].", pathImagesColorIn.c_str());
 
-    validation.colorFrameCount = validateImagery(Dataloader::getPathColor());
-    if(!validation.colorFrameCount) {
-        if(!silent) UERROR("Provided RGB imagery is invalid [%s].", 
-            Dataloader::getPathColor().c_str());
-        validation.colorFrames = true;
-    }
-
-    validation.depthFrameCount = validateImagery(Dataloader::getPathDepth());
-    if(!validation.depthFrameCount) {
-        if(!silent) UERROR("Provided depth imagery is invalid [%s].", 
-            Dataloader::getPathDepth().c_str());
-        validation.depthFrames = true;
-    }
-
-    size_t frameCount = std::min(validation.colorFrameCount, validation.depthFrameCount);
-    if(validation.colorFrameCount != validation.depthFrameCount) {
-        if(!silent) UWARN("Number of RGB [%zu] and depth images [%zu] don't match.", 
-            validation.colorFrameCount, validation.depthFrameCount);
-    }
-
-    validation.stampCount = validateLineCount(Dataloader::getPathStamps());
-
-    if(validation.stampCount < frameCount) {
-        if(!silent) UERROR("Imagery count [%zu color, %zu depth] is greater than the number of timestamps [%zu] in [%s].", 
-            validation.colorFrameCount, validation.depthFrameCount, validation.stampCount, Dataloader::getPathStamps().c_str());
-        validation.events = true;
-    }
-
-    if(!fs::exists(Dataloader::getPathCalibrationFile())) {
-        if(!silent) UERROR("Camera calibration file does not exist [%s].", 
-            Dataloader::getPathCalibrationFile().c_str());
-        validation.calibration = true;
-    }
-
-    validation.sensorDataCount = validateLineCount(Dataloader::getPathIMU());
-    if(validation.sensorDataCount < frameCount) {
-        if(!silent) UERROR("Imagery count [%zu] is greater than the number of IMU entries [%zu] in [%s].", 
-            validation.colorFrameCount, validation.sensorDataCount, Dataloader::getPathIMU().c_str());
-        validation.events = true;
-    }
-
-    if(!silent) UINFO("Finished data validation.");
-
-    return validation;
-}
-
-cv::Size Dataloader::queryColorVideoSize(const fs::path& pathColorIn) const {
-    UINFO("Querying dimensions of color imagery [%s].", pathColorIn.c_str());
-
-    cv::VideoCapture cap(pathColorIn);
+    cv::VideoCapture cap(pathImagesColorIn);
     if(!cap.isOpened()) {
-        UWARN("Failed to split RGB imagery from [%s].", pathColorIn.c_str());
+        UWARN("Failed to split RGB imagery from [%s].", pathImagesColorIn.c_str());
         return cv::Size(0, 0);
     }
 
@@ -189,24 +44,20 @@ cv::Size Dataloader::queryColorVideoSize(const fs::path& pathColorIn) const {
     return size;
 }
 
-cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const {
-    UINFO("Began splitting color imagery [%s].", pathColorIn.c_str());
+bool Dataloader::splitImagesColor(const fs::path& pathImagesColorIn) const {
+    UINFO("Began splitting color imagery [%s].", pathImagesColorIn.c_str());
 
-    cv::VideoCapture cap(pathColorIn);
+    cv::VideoCapture cap(pathImagesColorIn);
     if(!cap.isOpened()) {
-        UWARN("Failed to split RGB imagery from [%s].", pathColorIn.c_str());
-        return cv::Size(0, 0);
+        UWARN("Failed to split RGB imagery from [%s].", pathImagesColorIn.c_str());
+        return false;
     }
-
-    cv::Size capSize;
-    capSize.width =  static_cast<size_t>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
-    capSize.height = static_cast<size_t>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
 
     cv::Mat frame;
     for(int frameCount = 0; cap.read(frame); ++frameCount) {
         std::ostringstream filename;
         filename << std::setw(6) << std::setfill('0') << frameCount << ".png";
-        fs::path pathFrame = Dataloader::getPathColor() / filename.str();
+        fs::path pathFrame = cfg_.pathImagesColor / filename.str();
 
         cv::Mat frameResized;
         cv::resize(frame, frameResized, cv::Size(HANDY_W, HANDY_H));
@@ -219,14 +70,14 @@ cv::Size Dataloader::splitColorVideoAndScale(const fs::path& pathColorIn) const 
 
     UINFO("Completed splitting color imagery.");
 
-    return capSize;
+    return true;
 }
 
-void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut) {
-    UINFO("Began depth upscaling WITHOUT PromptDA [%s].", pathDepthIn.c_str());
+void upscaleDepthNaive(const fs::path& pathImagesDepthIn, const fs::path& pathImagesDepthOut) {
+    UINFO("Began depth upscaling WITHOUT PromptDA [%s].", pathImagesDepthIn.c_str());
 
     std::vector<fs::directory_entry> entries;
-    for(const auto& entry : fs::directory_iterator(pathDepthIn)) {
+    for(const auto& entry : fs::directory_iterator(pathImagesDepthIn)) {
         if(entry.is_regular_file() && entry.path().extension() == ".png") entries.push_back(entry);
     }
 
@@ -239,7 +90,7 @@ void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut
 
         cv::Mat frame = cv::imread(entry.path().string(), cv::IMREAD_UNCHANGED);
         if(frame.empty()) UWARN("Failed to process a frame of depth imagery [%s].", entry.path().c_str());
-        fs::path pathFrame = pathDepthOut / entry.path().filename().string();
+        fs::path pathFrame = pathImagesDepthOut / entry.path().filename().string();
 
         cv::Mat frameResized;
         cv::resize(frame, frameResized, cv::Size(HANDY_W, HANDY_H));
@@ -253,35 +104,35 @@ void upscaleDepthNaive(const fs::path& pathDepthIn, const fs::path& pathDepthOut
 }
 
 bool upscaleDepthPromptDA(
-    const fs::path& pathRGB, 
-    const fs::path& pathDepthIn, 
-    const fs::path& pathDepthOut
+    const fs::path& pathImagesColor, 
+    const fs::path& pathImagesDepthIn, 
+    const fs::path& pathImagesDepthOut
 ) {
     UINFO("Began depth upscaling WITH PromptDA.");
-    UINFO("pathRGB: [%s].", pathRGB.c_str());
-    UINFO("pathDepthIn: [%s].", pathDepthIn.c_str());
-    UINFO("pathDepthOut: [%s].", pathDepthOut.c_str());
+    UINFO("pathRGB: [%s].", pathImagesColor.c_str());
+    UINFO("pathDepthIn: [%s].", pathImagesDepthIn.c_str());
+    UINFO("pathDepthOut: [%s].", pathImagesDepthOut.c_str());
 
     const bool result = PyScript::get().call("upscale_depth", "sssi", 
-        pathRGB.c_str(), pathDepthIn.c_str(), pathDepthOut.c_str(), HANDY_W);
+        pathImagesColor.c_str(), pathImagesDepthIn.c_str(), pathImagesDepthOut.c_str(), HANDY_W);
 
     if(result) UINFO("Completed depth upscaling WITH PromptDA.");
     else {
         UERROR("Failed to upscale depth imagery WITH PromptDA.");
-        UINFO("pathRGB: [%s].", pathRGB.c_str());
-        UINFO("pathDepthIn: [%s].", pathDepthIn.c_str());
-        UINFO("pathDepthOut: [%s].", pathDepthOut.c_str());
+        UINFO("pathRGB: [%s].", pathImagesColor.c_str());
+        UINFO("pathDepthIn: [%s].", pathImagesDepthIn.c_str());
+        UINFO("pathDepthOut: [%s].", pathImagesDepthOut.c_str());
     }
 
     return result;
 }
 
-bool Dataloader::upscaleDepth(const fs::path& pathDepthIn) const {
-    if(upscale_) return upscaleDepthPromptDA(
-        Dataloader::getPathColor(), 
-        pathDepthIn, 
-        Dataloader::getPathDepth());
-    else upscaleDepthNaive(pathDepthIn, Dataloader::getPathDepth());
+bool Dataloader::writeDepth(const fs::path& pathImagesDepthIn) const {
+    if(cfg_.upscalingMethod == PROMPTDA) return upscaleDepthPromptDA(
+        cfg_.pathImagesColor, 
+        pathImagesDepthIn, 
+        cfg_.pathImagesDepth);
+    else upscaleDepthNaive(pathImagesDepthIn, cfg_.pathImagesDepth);
     return true;
 }
 
@@ -317,13 +168,14 @@ bool Dataloader::writeCalibration(
     UINFO("cx: [%lf].", cx);
     UINFO("cy: [%lf].", cy);
 
-    UINFO("Began writing camera calibration [%s].", Dataloader::getPathCalibrationFile().c_str());
+    UINFO("Began writing camera calibration [%s].", cfg_.pathCalibration.c_str());
 
-    std::ofstream file(Dataloader::getPathCalibrationFile());
+    std::ofstream file(cfg_.pathCalibration);
     if(!file.is_open()) {
-        UERROR("Failed to open camera calibration output file [%s].", Dataloader::getPathCalibrationFile().c_str());
+        UERROR("Failed to open camera calibration output file [%s].", cfg_.pathCalibration.c_str());
         return false;
     }
+
     file << "%YAML:1.0" << std::endl;
     file << "---" << std::endl;
     file << "camera_name: handy_camera" << std::endl;
@@ -336,14 +188,6 @@ bool Dataloader::writeCalibration(
     file << fx  << ", " << 0.0 << ", " << cx  << ", ";
     file << 0.0 << ", " << fy  << ", " << cy  << ", ";
     file << 0.0 << ", " << 0.0 << ", " << 0.0 << " ]" << std::endl;
-#if 0
-    file << "local_transform:" << std::endl;
-    file << "   rows: 3" << std::endl;
-    file << "   cols: 4" << std::endl;
-    file << "   data: [  1.0,  0.0,  0.0, 0.0, " << std::endl;
-    file << "            0.0,  1.0,  0.0, 0.0, " << std::endl;
-    file << "            0.0,  0.0,  1.0, 0.0 ]" << std::endl;
-#endif
     file << "distortion_coefficients:" << std::endl;
     file << "   rows: 1" << std::endl;
     file << "   cols: 5" << std::endl;
@@ -367,23 +211,22 @@ bool Dataloader::writeCalibration(
     return true;
 }
 
-bool Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
+bool Dataloader::writeEvents(std::vector<rtabmap::IMUEvent>&& events) const {
     UINFO("Began storing [%zu] IMU events.", events.size());
 
-    events_ = std::move(events);
-    std::ofstream streamIMU(Dataloader::getPathIMU());
+    std::ofstream streamIMU(cfg_.pathIMU);
     if(!streamIMU.is_open()) {
-        UERROR("Failed to write to IMU output file [%s].", Dataloader::getPathIMU().c_str());
+        UERROR("Failed to write to IMU output file [%s].", cfg_.pathIMU.c_str());
         return false;
     }
-    std::ofstream streamStamps(Dataloader::getPathStamps());
+    std::ofstream streamStamps(cfg_.pathStamps);
     if(!streamStamps.is_open()) {
-        UERROR("Failed to write to timestamps output file [%s].", Dataloader::getPathStamps().c_str());
+        UERROR("Failed to write to timestamps output file [%s].", cfg_.pathStamps.c_str());
         return false;
     }
 
     rtabmap::IMU sensorData;
-    for(const rtabmap::IMUEvent& event : events_) {
+    for(const rtabmap::IMUEvent& event : events) {
         sensorData = event.getData();
 
         streamIMU << std::fixed << std::setprecision(6) << sensorData.linearAcceleration()[0] << ", ";
@@ -404,36 +247,38 @@ bool Dataloader::storeEvents(std::vector<rtabmap::IMUEvent>&& events) {
     return true;
 }
 
-bool Dataloader::parseEvents() {
+std::optional<std::vector<rtabmap::IMUEvent>> Dataloader::parseEvents() const {
+    std::vector<rtabmap::IMUEvent> events;
+
     lazycsv::parser<lazycsv::mmap_source,
         lazycsv::has_header<false>,
         lazycsv::delimiter<','>,
         lazycsv::quote_char<'"'>,
-        lazycsv::trim_chars<' ', '\t'>> imuParser { Dataloader::getPathIMU() };
+        lazycsv::trim_chars<' ', '\t'>> imuParser { cfg_.pathIMU };
     rtabmap::IMU imuCurrent;
 
-    std::ifstream stampsStream(Dataloader::getPathStamps());
+    std::ifstream stampsStream(cfg_.pathStamps);
     double stampCurrent;
 
     char* temp;
 
     double lx, ly, lz, ax, ay, az, qx, qy, qz, qw;
     for(const auto row : imuParser) {
-        if(!(stampsStream >> stampCurrent)) return false;
+        if(!(stampsStream >> stampCurrent)) return std::nullopt;
 
         const auto raw = row.cells(0, 1, 2, 3, 4, 5);
         lx = std::strtof(raw[0].raw().data(), &temp);
-        if(temp == raw[0].raw().data()) return false;
+        if(temp == raw[0].raw().data()) return std::nullopt;
         ly = std::strtof(raw[1].raw().data(), &temp);
-        if(temp == raw[1].raw().data()) return false;
+        if(temp == raw[1].raw().data()) return std::nullopt;
         lz = std::strtof(raw[2].raw().data(), &temp);
-        if(temp == raw[2].raw().data()) return false;
+        if(temp == raw[2].raw().data()) return std::nullopt;
         ax = std::strtof(raw[3].raw().data(), &temp);
-        if(temp == raw[3].raw().data()) return false;
+        if(temp == raw[3].raw().data()) return std::nullopt;
         ay = std::strtof(raw[4].raw().data(), &temp);
-        if(temp == raw[4].raw().data()) return false;
+        if(temp == raw[4].raw().data()) return std::nullopt;
         az = std::strtof(raw[5].raw().data(), &temp);
-        if(temp == raw[5].raw().data()) return false;
+        if(temp == raw[5].raw().data()) return std::nullopt;
 
         imuCurrent = rtabmap::IMU(
             cv::Vec3d(ax, ay, az),
@@ -442,8 +287,8 @@ bool Dataloader::parseEvents() {
             cv::Mat::eye(3, 3, CV_64F)
         );
 
-        events_.emplace_back(imuCurrent, stampCurrent); 
+        events.emplace_back(imuCurrent, stampCurrent); 
     }
     
-    return true;
+    return events;
 }

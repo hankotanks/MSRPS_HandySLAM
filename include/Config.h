@@ -6,19 +6,29 @@
 
 namespace fs = std::filesystem;
 
-enum ConfigDataSource { STRAY, SCANNET };
-enum ConfigUpscalingMethod { NAIVE, PROMPTDA };
+enum DataSource { STRAY, SCANNET };
+enum UpscalingMethod { NAIVE, PROMPTDA };
 
 struct Config {
-    ConfigDataSource dataSource;
+    bool rebuild = false;
+    bool post = false;
+    bool integrated = false;
+    DataSource dataSource;
+    UpscalingMethod upscalingMethod = NAIVE;
     fs::path pathData;
     fs::path pathOut;
+    fs::path pathTemp;
+    fs::path pathDB;
+    fs::path pathCalibration;
+    fs::path pathIMU;
+    fs::path pathStamps;
+    fs::path pathImagesColor;
+    fs::path pathImagesDepth;
     std::optional<fs::path> pathCloud;
-    ConfigUpscalingMethod upscalingMethod = NAIVE;
-    bool skipSLAM = false;
-    bool withIMU= false;
-    bool forceRebuild = false;
+
     Config(int argc, char* argv[]);
+
+    bool validate() const;
 };
 
 #endif // CONFIG_H

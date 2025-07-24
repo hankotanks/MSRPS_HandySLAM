@@ -7,7 +7,7 @@
 class DataloaderStray : public Dataloader {
 public:
     DataloaderStray(const Config& cfg) : Dataloader(cfg) { /* STUB */ };
-    virtual bool process(const DataloaderValidation& validation) override;
+    virtual bool process() override;
 };
 
 #endif // DATALOADER_STRAY_H

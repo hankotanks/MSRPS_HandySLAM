@@ -1,100 +1,29 @@
 #ifndef DATALOADER_H
 #define DATALOADER_H
 
-#include <filesystem>
-
+#include <rtabmap/utilite/ULogger.h>
 #include <rtabmap/core/IMU.h>
 #include <rtabmap/core/Transform.h>
-#include <rtabmap/utilite/ULogger.h>
 
 #include "Config.h"
 
-namespace fs = std::filesystem;
-
-struct DataloaderValidation {
-    bool fullRebuild = false;
-    bool events = false;
-    bool calibration = false;
-    bool colorFrames = false;
-    bool depthFrames = false;
-    size_t stampCount = 0;
-    size_t sensorDataCount = 0;
-    size_t colorFrameCount = 0;
-    size_t depthFrameCount = 0;
-    bool valid() const { return !(fullRebuild || events || calibration || colorFrames || depthFrames); }
-    size_t frameCount() const { return std::min(colorFrameCount, depthFrameCount); }
-};
-
 class Dataloader {
-private:
-    bool skip_ = false;
-    bool invalid_ = false;
-    bool rebuild_;
-    bool upscale_;
-    DataloaderValidation validation_;
-    fs::path pathData_, pathTemp_;
-    fs::path pathDB_;
-    fs::path pathColor_, pathDepth_;
-    std::vector<rtabmap::IMUEvent> events_;
+protected:
+    const Config cfg_;
+public: // IMPLEMENT THIS METHOD ON DERIVED CLASSES
+    virtual bool process() = 0;
 public:
-    Dataloader(const Config& cfg);
-    virtual bool process(const DataloaderValidation&) = 0; // THE ONLY METHOD THAT SHOULD BE IMPLEMENTED ON DERIVED CLASSES
-    // initializer (invokes Dataloader::process and can't be overriden)
-    virtual bool init() final { 
-        if(skip_) return true;
-        if(!rebuild_) {
-            UINFO("Using preprocessed scene data from last run.");
-            UINFO("frames: %zu", validation_.frameCount());
-            UINFO("events: %s [%zu stamps] [%zu IMU readings]", validation_.events ? "INVALID" : "VALID", validation_.stampCount, validation_.sensorDataCount);
-            UINFO("calibration: %s", validation_.calibration ? "INVALID" : "VALID");
-            UINFO("color: %s [%zu frames]", validation_.colorFrames ? "INVALID" : "VALID", validation_.colorFrameCount);
-            UINFO("depth: %s [%zu frames]", validation_.depthFrames ? "INVALID" : "VALID", validation_.depthFrameCount);
-            return true; }
-        UINFO("Began preprocessing scene data.");
-        if(process(validation_)) {
-            UINFO("Finished preprocessing scene data.");
-            validation_ = Dataloader::validate();
-            if(validation_.valid()) return true;
-            UERROR("Data validation failed!");
-            UERROR("frames: %zu", validation_.frameCount());
-            UERROR("events: %s [%zu stamps] [%zu IMU readings]", validation_.events ? "INVALID" : "VALID", validation_.stampCount, validation_.sensorDataCount);
-            UERROR("calibration: %s", validation_.calibration ? "INVALID" : "VALID");
-            UERROR("color: %s [%zu frames]", validation_.colorFrames ? "INVALID" : "VALID", validation_.colorFrameCount);
-            UERROR("depth: %s [%zu frames]", validation_.depthFrames ? "INVALID" : "VALID", validation_.depthFrameCount);
-            return false;
-        } else UERROR("Failed to preprocess scene data.");
-        return false; }
-    // helper methods
-    cv::Size queryColorVideoSize(const fs::path& pathColorIn) const;
-    cv::Size splitColorVideoAndScale(const fs::path& pathColorIn) const; // returns the original image dimensions
-    bool upscaleDepth(const fs::path& pathDepthIn) const; // either does dumb upscaling or PromptDA
+    Dataloader(const Config& cfg) : cfg_(cfg) { /* STUB */ }
+    bool init();
+public:
+    const Config& getConfig() const { return cfg_; }
+public: // helper methods for derived dataloaders
     bool writeCalibration(const rtabmap::Transform& intrinsics, const cv::Size& originalColorSize) const;
-    bool storeEvents(std::vector<rtabmap::IMUEvent>&& events);
-    // check if SLAM should be skipped
-    bool skipSLAM() const { return skip_; }
-    // frame count getters
-    size_t getFrameCount() const { return validation_.frameCount(); }
-    // path getters
-    fs::path getPathData() const { return pathData_; }
-    fs::path getPathDB() const { return pathDB_; }
-    fs::path getPathIMU() const { return (pathTemp_ / "imu.csv"); }
-    fs::path getPathColor() const { return pathColor_; }
-    fs::path getPathDepth() const { return pathDepth_; }
-    std::pair<fs::path, std::string> getPathCalibration() const { 
-        return std::make_pair(pathTemp_, "handy_camera"); } // returns calibration path and camera name
-    fs::path getPathCalibrationFile() const {
-        auto [pathCalibration, cameraName] = Dataloader::getPathCalibration();
-        return pathCalibration / (cameraName + ".yaml"); }
-    fs::path getPathStamps() const { return (pathTemp_ / "stamps.txt"); }
-    // if rebuilding, these events are generated with parseEvents,
-    // otherwise, storeEvents should be called by the derived Dataloader class
-    const std::vector<rtabmap::IMUEvent>& getEvents() const { return events_; }
-private:
-    // data must pass validation to perform SLAM
-    DataloaderValidation validate(const bool silent = false) const;
-    // invoked in constructor
-    // error handling is punted until validation
-    bool parseEvents();
+    bool writeDepth(const fs::path& pathDepthIn) const;
+    bool writeEvents(std::vector<rtabmap::IMUEvent>&& events) const;
+    std::optional<std::vector<rtabmap::IMUEvent>> parseEvents() const;
+    bool splitImagesColor(const fs::path& pathImagesColorIn) const;
+    cv::Size queryImagesColor(const fs::path& pathImagesColorIn) const;
 };
 
 #endif // DATALOADER_H
