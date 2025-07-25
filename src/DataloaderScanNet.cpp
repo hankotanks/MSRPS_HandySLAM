@@ -17,7 +17,6 @@
 
 namespace fs = std::filesystem;
 
-// TODO: Make this a member function so I don't have to pass withIMU
 std::optional<std::pair<rtabmap::Transform, rtabmap::IMUEvent>> parseFrame(
     const nlohmann::detail::iteration_proxy_value<nlohmann::detail::iter_impl<nlohmann::basic_json<>>>& frame
 ) {
@@ -68,7 +67,6 @@ std::optional<std::pair<rtabmap::Transform, rtabmap::IMUEvent>> parseFrame(
     return std::make_pair(intrinsics, rtabmap::IMUEvent(sensorData, stamp));
 }
 
-// TODO: Make this a member function so I don't have to pass withIMU
 std::pair<rtabmap::Transform, std::vector<rtabmap::IMUEvent>> parseIntrinsicsAndIMU(const fs::path& pathJSON) {
     rtabmap::Transform intrinsics;
     std::vector<rtabmap::IMUEvent> events;
@@ -107,37 +105,22 @@ bool unpackDepthBinary(
     return result;
 }
 
-bool DataloaderScanNet::process() {
+bool DataloaderScanNet::processImagesColor() { 
     const fs::path pathData = cfg_.pathData / "iphone";
     const fs::path pathImagesColorIn = pathData / "rgb.mkv";
-    
-    // RGB & IMU & CALIBRATION & TIMESTAMPS
+   
     cv::Size originalColorSize = Dataloader::queryImagesColor(pathImagesColorIn);
     if(originalColorSize.empty()) {
         UERROR("Failed to retrieve dimensions of color imagery [%s]. ", pathImagesColorIn.c_str());
         return false;
     }
 
-    Dataloader::splitImagesColor(pathImagesColorIn);
-    if(originalColorSize.empty()) {
-        UERROR("Failed to split RGB frames [%s].", pathImagesColorIn.c_str());
-        return false;
-    }
+    return Dataloader::splitImagesColor(pathImagesColorIn);
+}
 
-    // IMU & CALIBRATION
-    const fs::path pathJSON = pathData / "pose_intrinsic_imu.json";
-    auto [intrinsics, events] = parseIntrinsicsAndIMU(pathJSON);
-    if(events.empty()) {
-        UERROR("Failed to parse IMU data or camera intrinsics [%s].", pathJSON.c_str());
-        return false;
-    }
-
-    Dataloader::writeCalibration(intrinsics, originalColorSize);
-    Dataloader::writeEvents(std::move(events));
-    
-
-    // DEPTH
-    const fs::path pathDepthTemp = cfg_.pathData / (cfg_.pathImagesDepth.filename().string() + "_unpacked");
+bool DataloaderScanNet::processImagesDepth() { 
+    const fs::path pathData = cfg_.pathData / "iphone";
+    const fs::path pathDepthTemp = pathData / (cfg_.pathImagesDepth.filename().string() + "_unpacked");
     const fs::path pathDepthBinary = pathData / "depth.bin";
     if(fs::exists(pathDepthTemp)) {
         UINFO("Using previously unpacked depth frames for upscaling [%s].", pathDepthTemp.c_str());
@@ -151,6 +134,56 @@ bool DataloaderScanNet::process() {
             return false;
         }
     }
+
+    return true;
+}
+
+std::optional<std::pair<rtabmap::Transform, std::vector<rtabmap::IMUEvent>>> DataloaderScanNet::processEventsAndCalibration() {
+    const fs::path pathData = cfg_.pathData / "iphone";
+    const fs::path pathJSON = pathData / "pose_intrinsic_imu.json";
+
+    auto [intrinsics, events] = parseIntrinsicsAndIMU(pathJSON);
+    if(events.empty()) {
+        UERROR("Failed to parse IMU data or camera intrinsics [%s].", pathJSON.c_str());
+        return std::nullopt;
+    }
+
+    return std::make_pair(intrinsics, events);
+}
+
+bool DataloaderScanNet::processEvents() {
+    auto result = DataloaderScanNet::processEventsAndCalibration();
+    if(result) {
+        auto [intrinsics, events] = *result;
+
+        if(!Dataloader::writeEvents(std::move(events))) {
+            UERROR("Failed to sensor events [%s]. ", cfg_.pathCalibration.c_str());
+            return false;
+        }
+    } else return false;
+
+    return true;
+}
+
+bool DataloaderScanNet::processCalibration() { 
+    auto result = DataloaderScanNet::processEventsAndCalibration();
+    if(result) {
+        auto [intrinsics, events] = *result;
+
+        const fs::path pathData = cfg_.pathData / "iphone";
+        const fs::path pathImagesColorIn = pathData / "rgb.mkv";
+
+        cv::Size originalColorSize = Dataloader::queryImagesColor(pathImagesColorIn);
+        if(originalColorSize.empty()) {
+            UERROR("Failed to retrieve dimensions of color imagery [%s]. ", pathImagesColorIn.c_str());
+            return false;
+        }
+
+        if(!Dataloader::writeCalibration(intrinsics, originalColorSize)) {
+            UERROR("Failed to write camera calibration data [%s]. ", cfg_.pathCalibration.c_str());
+            return false;
+        }
+    } else return false;
 
     return true;
 }

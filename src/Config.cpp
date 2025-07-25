@@ -58,89 +58,101 @@ bool validateLines(const std::filesystem::path& pathFile, size_t expectedCount) 
 }
 
 // truthy if validation succeeds
-bool Config::validate() const {
+void Config::validate() {
+    rebuildImagesColor = false;
+    rebuildImagesDepth = false;
+    rebuildEvents = false;
+    rebuildCalibration = false;
+
     if(!fs::exists(pathTemp)) {
         UERROR("Validation failed. Temp folder did not exist [%s].", pathTemp.c_str());
-        return false;
+        rebuildImagesColor = true;
+        rebuildImagesDepth = true;
+        rebuildEvents = true;
+        rebuildCalibration = true;
+        return;
     }
     
     if(!fs::exists(pathCalibration)) {
         UERROR("Validation failed. Calibration file did not exist [%s].", pathCalibration.c_str());
-        return false;
+        rebuildCalibration = true;
     }
 
     if(!fs::exists(pathIMU)) {
         UERROR("Validation failed. IMU file did not exist [%s].", pathIMU.c_str());
-        return false;
+        rebuildEvents = true;
     }
 
     if(!fs::exists(pathStamps)) {
         UERROR("Validation failed. Timestamps file did not exist [%s].", pathStamps.c_str());
-        return false;
+        rebuildEvents = true;
     }
 
     if(!fs::exists(pathImagesColor)) {
         UERROR("Validation failed. Color imagery folder did not exist [%s].", pathImagesColor.c_str());
-        return false;
+        rebuildImagesColor = true;
     }
 
     if(!fs::exists(pathImagesDepth)) {
         UERROR("Validation failed. Depth imagery folder did not exist [%s].", pathImagesDepth.c_str());
-        return false;
+        rebuildImagesDepth = true;
     }
 
     size_t frames, framesColor, framesDepth;
-
     framesColor = countImagery(pathImagesColor);
     UINFO("Counted [%zu] frames of color imagery.", framesColor);
+    if(!framesColor) rebuildImagesColor = true;
 
     framesDepth = countImagery(pathImagesDepth);
     UINFO("Counted [%zu] frames of depth imagery.", framesDepth);
+    if(!framesDepth) rebuildImagesDepth = true;
 
     frames = std::min(framesColor, framesDepth);
 
-    if(!frames) {
-        UERROR("Validation failed. Mistakenly read 0 frames of imagery.");
-        return false;
-    }
-
     if(!validateLines(pathIMU, frames)) {
         UERROR("Validation failed. IMU file contains insufficient lines.");
-        return false;
+        rebuildEvents = true;
     }
 
     if(!validateLines(pathStamps, frames)) {
         UERROR("Validation failed. Timestamps file contains insufficient lines.");
-        return false;
+        rebuildEvents = true;
     }
 
-    if(!validateImagery(pathImagesColor, frames)) {
-        UERROR("Validation failed. Unable to rectify color imagery.");
-        return false;
-    }
+    if(frames) {
+        if(!validateImagery(pathImagesColor, frames)) {
+            UERROR("Validation failed. Unable to rectify color imagery.");
+            rebuildImagesColor = true;
+        }
 
-    if(!validateImagery(pathImagesDepth, frames)) {
-        UERROR("Validation failed. Unable to rectify depth imagery.");
-        return false;
+        if(!validateImagery(pathImagesDepth, frames)) {
+            UERROR("Validation failed. Unable to rectify depth imagery.");
+            rebuildImagesDepth = true;
+        }
     }
-
-    return true;
+    
 }
 
 Config::Config(int argc, char* argv[]) {
     std::string pathDataRaw, pathOutRaw;
     
     bool savePointCloud = false;
+    bool rebuildAll = false;
 
     auto cli = (
-        clipp::command("stray").set(dataSource, STRAY) | clipp::command("scannet").set(dataSource, SCANNET),
-        clipp::value("data-path", pathDataRaw),
-        clipp::value("out-path", pathOutRaw),
-        clipp::option("-r", "--rebuild").set(rebuild).doc("force a rebuild of the temp folder") |
-            clipp::option("-p", "--post").set(post).doc("skip SLAM and use database from previous run (if possible)"),
-        clipp::option("-u", "--upscale").set(upscalingMethod, PROMPTDA).doc("upscale imagery using PromptDA"),
-        clipp::option("-s", "--save").set(savePointCloud).doc("save generated point cloud as PLY"),
-        clipp::option("-i", "--integration").set(integrated).doc("integrate orientation using IMU data")
+        (
+            clipp::command("stray").set(dataSource, STRAY).doc("process a scene from the Stray scanner app") | 
+                clipp::command("scannet").set(dataSource, SCANNET).doc("process a scene from the ScanNet++ dataset"),
+            clipp::value("data-path", pathDataRaw),
+            clipp::value("out-path", pathOutRaw),
+            clipp::option("-r", "--rebuild").set(rebuildAll, true).doc("force a rebuild of the temp folder"),
+            clipp::option("-u", "--upscale").set(upscalingMethod, PROMPTDA).doc("upscale imagery using PromptDA"),
+            clipp::option("-i", "--integration").set(integrated, true).doc("integrate orientation using IMU data")
+        ) | (
+            clipp::command("post").set(dataSource, POST).doc("skip SLAM and use database from previous run (if possible)"),
+            clipp::value("out-path", pathOutRaw)
+        ),
+        clipp::option("-s", "--save").set(savePointCloud).doc("save generated point cloud as PLY")
     );
 
     if(!clipp::parse(argc, argv, cli)) {
@@ -148,10 +160,12 @@ Config::Config(int argc, char* argv[]) {
         std::exit(1);
     }
 
-    pathData = fs::path(pathDataRaw);
-    if(!fs::exists(pathData)) {
-        UERROR("Provided data path does not exist [%s].", pathData.c_str());
-        std::exit(1);
+    if(dataSource != POST) {
+        pathData = fs::path(pathDataRaw);
+        if(!fs::exists(pathData)) {
+            UERROR("Provided data path does not exist [%s].", pathData.c_str());
+            std::exit(1);
+        }
     }
 
     pathOut = fs::path(pathOutRaw);
@@ -178,32 +192,47 @@ Config::Config(int argc, char* argv[]) {
     }
 
     pathTemp = pathData / "temp";
-    
     pathDB = pathOut / "temp.db";
-
     pathCalibration = pathTemp / "handy_camera.yaml";
     pathIMU = pathTemp / "imu.csv";
     pathStamps = pathTemp / "stamps.txt";
-
     pathImagesColor = pathTemp / "color";
     pathImagesDepth = pathTemp / ((upscalingMethod == NAIVE) ? "depth" : "depth_upscaled");
-    
-    if(post && !fs::exists(pathDB)) {
-        UERROR("Unable to skip SLAM without prior database [%s].", pathDB.c_str());
-        std::exit(1);
+
+    pathPoses = pathOut / "poses.csv";
+    pathStampsOut = pathOut / "stamps.csv";
+
+    if(rebuildAll) {
+        rebuildImagesColor = true;
+        rebuildImagesDepth = true;
+        rebuildEvents = true;
+        rebuildCalibration = true;
     }
 
-    if(!rebuild) 
-        rebuild = !Config::validate();
-    
-    if(rebuild) {
-        fs::create_directories(pathTemp);
-        fs::remove_all(pathImagesColor);
-        fs::remove_all(pathImagesDepth);
-        fs::remove(pathCalibration);
-        fs::remove(pathIMU);
-        fs::remove(pathStamps);
-        fs::create_directories(pathImagesColor);
-        fs::create_directories(pathImagesDepth);
-    }
+    if(dataSource == POST) {
+        if(!fs::exists(pathDB)) {
+            UERROR("Unable to skip SLAM without prior database [%s].", pathDB.c_str());
+            std::exit(1);
+        }
+
+        fs::remove(pathPoses);
+    } else {
+        if(fs::exists(pathDB)) fs::remove(pathDB);
+
+        if(rebuildAll) {
+            fs::remove_all(pathTemp);
+            fs::create_directories(pathTemp);
+        } else Config::validate();
+
+        if(rebuildCalibration) fs::remove(pathCalibration);
+        if(rebuildEvents) {
+            fs::remove(pathIMU);
+            fs::remove(pathStamps);
+        }
+
+        if(rebuildImagesColor && fs::exists(pathImagesColor)) fs::remove_all(pathImagesColor);
+        if(rebuildImagesDepth && fs::exists(pathImagesDepth)) fs::remove_all(pathImagesDepth);
+        if(!fs::exists(pathImagesColor)) fs::create_directories(pathImagesColor);
+        if(!fs::exists(pathImagesDepth)) fs::create_directories(pathImagesDepth);
+    }  
 }

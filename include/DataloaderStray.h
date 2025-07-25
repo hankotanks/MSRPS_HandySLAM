@@ -7,7 +7,10 @@
 class DataloaderStray : public Dataloader {
 public:
     DataloaderStray(const Config& cfg) : Dataloader(cfg) { /* STUB */ };
-    virtual bool process() override;
+    virtual bool processImagesColor() override;
+    virtual bool processImagesDepth() override;
+    virtual bool processEvents() override;
+    virtual bool processCalibration() override;
 };
 
 #endif // DATALOADER_STRAY_H

@@ -24,14 +24,22 @@ private:
     const size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::streampos countPos_;
 private:
+    // TODO: Accept const Config& as a parameter,
+    // include maxPoints as an optional value in the CLI arg parser
+    // if not supplied, use the max representable size_t
     CloudStream(const fs::path& pathCloud, const size_t maxPoints, const size_t index) : fileIndex_(index), pathCloud_(pathCloud), countMax_(maxPoints) {
         std::ostringstream cloudName;
         cloudName << "out_" << index << ".ply";
 
         pathFile_ = pathCloud / cloudName.str();
-        if(!fs::exists(pathFile_.parent_path())) fs::create_directories(pathFile_.parent_path());
+        
         file_ = std::fstream(pathFile_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);
+
+        if(!file_.is_open()) {
+            UWARN("Failed to open output PLY file [%s].", pathFile_.c_str());
+            std::exit(1);
+        }
 
         file_ << "ply" << std::endl;
         file_ << "format binary_little_endian 1.0" << std::endl;
@@ -140,7 +148,7 @@ public:
         UINFO("Output point cloud [%s] now has [%zu] points.", stream.pathFile_.c_str(), stream.count_);  
         if(stream.count_ > stream.countMax_) {
             stream.close();
-            stream = std::move(CloudStream(stream.pathCloud_, stream.countMax_, stream.fileIndex_ + 1));
+            stream = CloudStream(stream.pathCloud_, stream.countMax_, stream.fileIndex_ + 1);
         }  
 
         return stream;  

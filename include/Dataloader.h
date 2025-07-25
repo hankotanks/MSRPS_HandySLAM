@@ -9,11 +9,19 @@
 
 class Dataloader {
 protected:
-    const Config cfg_;
+    Config cfg_;
 public: // IMPLEMENT THIS METHOD ON DERIVED CLASSES
-    virtual bool process() = 0;
+    virtual bool processImagesColor() = 0;
+    virtual bool processImagesDepth() = 0;
+    virtual bool processEvents() = 0;
+    virtual bool processCalibration() = 0;
 public:
-    Dataloader(const Config& cfg) : cfg_(cfg) { /* STUB */ }
+    Dataloader(const Config& cfg) : cfg_(cfg) { 
+        if(cfg_.dataSource == POST) {
+            UERROR("Unreachable!");
+            std::exit(1);
+        }
+    }
     bool init();
 public:
     const Config& getConfig() const { return cfg_; }

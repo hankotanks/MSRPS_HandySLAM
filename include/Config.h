@@ -6,17 +6,17 @@
 
 namespace fs = std::filesystem;
 
-enum DataSource { STRAY, SCANNET };
+class Dataloader;
+
+enum DataSource { STRAY, SCANNET, POST };
 enum UpscalingMethod { NAIVE, PROMPTDA };
 
 struct Config {
-    bool rebuild = false;
-    bool post = false;
     bool integrated = false;
     DataSource dataSource;
     UpscalingMethod upscalingMethod = NAIVE;
+    // input paths
     fs::path pathData;
-    fs::path pathOut;
     fs::path pathTemp;
     fs::path pathDB;
     fs::path pathCalibration;
@@ -24,11 +24,20 @@ struct Config {
     fs::path pathStamps;
     fs::path pathImagesColor;
     fs::path pathImagesDepth;
+    // output paths
+    fs::path pathOut;
+    fs::path pathPoses;
+    fs::path pathStampsOut;
     std::optional<fs::path> pathCloud;
-
     Config(int argc, char* argv[]);
-
-    bool validate() const;
+private:
+    void validate();
+    bool rebuildImagesColor = false;
+    bool rebuildImagesDepth = false;
+    bool rebuildEvents = false;
+    bool rebuildCalibration = false;
+private:
+    friend Dataloader;
 };
 
 #endif // CONFIG_H

@@ -44,7 +44,6 @@ std::optional<rtabmap::Transform> parseCameraMatrix(
     return intrinsics;
 }
 
-// TODO: Make this a member function so I don't have to pass withIMU
 std::vector<rtabmap::IMUEvent> parseStrayEvents(
     const fs::path& pathOdometry, 
     const fs::path& pathIMU
@@ -102,21 +101,50 @@ std::vector<rtabmap::IMUEvent> parseStrayEvents(
     return events;
 }
 
-bool DataloaderStray::process() {
+bool DataloaderStray::processImagesColor() {
     const fs::path pathImagesColorIn = cfg_.pathData / "rgb.mp4";
-    
-    // RGB AND CALIBRATION
+
+    if(!Dataloader::splitImagesColor(pathImagesColorIn)) {
+        UERROR("Failed to split RGB frames [%s].", pathImagesColorIn.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+bool DataloaderStray::processImagesDepth() {
+    const fs::path pathDepthIn = cfg_.pathData / "depth";
+
+    if(!Dataloader::writeDepth(pathDepthIn)) {
+        UERROR("Failed to upscale depth [%s].", pathDepthIn.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+bool DataloaderStray::processEvents() {
+    const fs::path pathOdometry = cfg_.pathData / "odometry.csv";
+    const fs::path pathIMU = cfg_.pathData / "imu.csv";
+
+    std::vector<rtabmap::IMUEvent> events = parseStrayEvents(pathOdometry, pathIMU);
+    if(events.empty()) {
+        UERROR("Failed to parse odometry [%s] or IMU data [%s].", pathOdometry.c_str(), pathIMU.c_str());
+        return false;
+    }
+
+    return Dataloader::writeEvents(std::move(events));
+}
+
+bool DataloaderStray::processCalibration() {
+    const fs::path pathImagesColorIn = cfg_.pathData / "rgb.mp4";
+
     cv::Size originalColorSize = Dataloader::queryImagesColor(pathImagesColorIn);
     if(originalColorSize.empty()) {
         UERROR("Failed to retrieve dimensions of color imagery [%s]. ", pathImagesColorIn.c_str());
         return false;
     }
 
-    if(!Dataloader::splitImagesColor(pathImagesColorIn)) {
-        UERROR("Failed to split RGB frames [%s].", pathImagesColorIn.c_str());
-        return false;
-    }
-    
     const fs::path pathCameraMatrix = cfg_.pathData / "camera_matrix.csv";
     
     auto intrinsics = parseCameraMatrix(pathCameraMatrix);
@@ -125,25 +153,5 @@ bool DataloaderStray::process() {
         return false;
     }
 
-    if(!Dataloader::writeCalibration(*intrinsics, originalColorSize)) return false;
-    
-    // DEPTH
-    const fs::path pathDepthIn = cfg_.pathData / "depth";
-    if(!Dataloader::writeDepth(pathDepthIn)) {
-        UERROR("Failed to upscale depth [%s].", pathDepthIn.c_str());
-        return false;
-    }
-    
-    // TIMESTAMPS AND IMU
-    const fs::path pathOdometry = cfg_.pathData / "odometry.csv";
-    const fs::path pathIMU = cfg_.pathData / "imu.csv";
-    std::vector<rtabmap::IMUEvent> events = parseStrayEvents(pathOdometry, pathIMU);
-    if(events.empty()) {
-        UERROR("Failed to parse odometry [%s] or IMU data [%s].", pathOdometry.c_str(), pathIMU.c_str());
-        return false;
-    }
-    if(!Dataloader::writeEvents(std::move(events))) return false;
-    
-    
-    return true;
+    return Dataloader::writeCalibration(*intrinsics, originalColorSize);
 }

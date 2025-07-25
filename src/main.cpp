@@ -23,7 +23,9 @@
 
 #define MAX_POINTS 20000000
 
+// TODO: Abstract `post` and `run` away under another class (HandyRunner)
 void run(const Dataloader&);
+void post(const Config&);
 
 int main(int argc, char* argv[]) {
     ULogger::setType(ULogger::kTypeConsole);
@@ -41,20 +43,20 @@ int main(int argc, char* argv[]) {
             if(dataScanNet.init()) run(dataScanNet);
             break;
         }
-        default: UERROR("Unreachable!");
+        case POST: {
+            post(cfg);
+            break;
+        }
+        default: {
+            UERROR("Unreachable!");
+            std::exit(1);
+        }
     }
     
     return 0;
 }
 
-void post(const Dataloader&);
-
 void run(const Dataloader& data) {
-    if(data.getConfig().post) {
-        post(data);
-        return;
-    }
-
     rtabmap::CameraHandy camera(data);
 
     rtabmap::ParametersMap params;
@@ -88,7 +90,7 @@ void run(const Dataloader& data) {
 
     rtabmap::SensorData cameraData = camera.takeImage(), cameraDataProcessed;
 
-    std::ofstream stamps(data.getConfig().pathOut / "stamps.csv");
+    std::ofstream stamps(data.getConfig().pathStampsOut);
 
     int nodeIdPrev = 0;
 
@@ -159,7 +161,7 @@ void run(const Dataloader& data) {
 
     delete odom;
 
-    post(data);
+    post(data.getConfig());
    
     UINFO("Finished SLAM with [%d] frames.", cameraData.id());
 }
@@ -204,11 +206,11 @@ std::map<int, int> components(const std::map<int, rtabmap::Transform>& poses, co
     return nodeGroups;
 }
 
-void post(const Dataloader& data) {
+void post(const Config& cfg) {
     rtabmap::DBDriver* driver = new rtabmap::DBDriverSqlite3();
 
     rtabmap::SensorData cameraData;
-    if(driver->openConnection(data.getConfig().pathDB, false)) {
+    if(driver->openConnection(cfg.pathDB, false)) {
         std::map<int, rtabmap::Transform> poses = driver->loadOptimizedPoses();
 
         std::multimap<int, rtabmap::Link> links;
@@ -227,10 +229,10 @@ void post(const Dataloader& data) {
             }
         }
 
-        PoseStream writePose(data.getConfig().pathOut);
+        PoseStream writePose(cfg);
 
         std::optional<CloudStream> writeFrame = std::nullopt;
-        if(data.getConfig().pathCloud) writeFrame.emplace(*(data.getConfig().pathCloud), MAX_POINTS);
+        if(cfg.pathCloud) writeFrame.emplace(*(cfg.pathCloud), MAX_POINTS);
 
         rtabmap::Signature* node;
         for(const auto& [id, pose] : poses) {
@@ -269,7 +271,7 @@ void post(const Dataloader& data) {
         }
 
         driver->closeConnection();
-    } else UERROR("Failed to open database, cannot write point cloud [%s].", data.getConfig().pathDB.c_str());
+    } else UERROR("Failed to open database, cannot write point cloud [%s].", cfg.pathDB.c_str());
 
     delete driver;
 

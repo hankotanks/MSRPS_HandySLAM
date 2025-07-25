@@ -14,17 +14,34 @@
 #include "PyScript.h"
 
 bool Dataloader::init() {
-        if(cfg_.post) return true;
-        if(!process()) {
-            UERROR("Loading scene data failed [%s].", cfg_.pathData.c_str());
-            return false;
-        }
-        if(!cfg_.validate()) {
-            UERROR("Data validation failed.");
-            return false;
-        }
-        return true;
+    if(cfg_.rebuildCalibration && !processCalibration()) {
+        UERROR("Failed to process camera calibration [%s].", cfg_.pathCalibration.c_str());
+        return false;
     }
+
+    if(cfg_.rebuildEvents && !processEvents()) {
+        UERROR("Failed to IMU and timestamp data [%s, %s].", cfg_.pathIMU.c_str(), cfg_.pathStamps.c_str());
+        return false;
+    }
+
+    if(cfg_.rebuildImagesColor && !processImagesColor()) {
+        UERROR("Failed to process color imagery [%s].", cfg_.pathImagesColor.c_str());
+        return false;
+    }
+
+    if(cfg_.rebuildImagesDepth && !processImagesDepth()) {
+        UERROR("Failed to process depth imagery [%s].", cfg_.pathImagesDepth.c_str());
+        return false;
+    }
+
+    cfg_.validate();
+    if(cfg_.rebuildImagesColor || cfg_.rebuildImagesDepth || cfg_.rebuildCalibration || cfg_.rebuildEvents) {
+        UERROR("Data validation failed.");
+        return false;
+    }
+
+    return true;
+}
 
 
 cv::Size Dataloader::queryImagesColor(const fs::path& pathImagesColorIn) const {
