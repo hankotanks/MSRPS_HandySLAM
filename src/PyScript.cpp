@@ -6,6 +6,11 @@
 
 #include <rtabmap/utilite/ULogger.h>
 
+PyScript& PyScript::get() {
+    static PyScript instance(HANDY_PY_SCRIPT_MODULE_NAME);
+    return instance;
+}
+
 PyScript::PyScript(const std::string& moduleName) : moduleName_(moduleName) {
     PyConfig config;
     PyConfig_InitIsolatedConfig(&config);

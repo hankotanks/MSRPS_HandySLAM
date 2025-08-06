@@ -5,13 +5,12 @@
 #include "Dataloader.h"
 
 class DataloaderStray : public Dataloader {
-private:
-    bool upscaleWithPromptDA_;
 public:
-    DataloaderStray(const Config& cfg) : 
-        Dataloader(cfg), 
-        upscaleWithPromptDA_(cfg.upscaleWithPromptDA()) { /* STUB */ };
-    virtual void process() override;
+    DataloaderStray(const Config& cfg) : Dataloader(cfg) { /* STUB */ };
+    virtual bool processImagesColor() override;
+    virtual bool processImagesDepth() override;
+    virtual bool processEvents() override;
+    virtual bool processCalibration() override;
 };
 
 #endif // DATALOADER_STRAY_H

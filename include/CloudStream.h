@@ -12,25 +12,34 @@
 #include <rtabmap/core/SensorData.h>
 #include <rtabmap/core/util3d.h>
 
-#include "Config.h"
-
 namespace fs = std::filesystem;
 
 class CloudStream {
 private:
-    size_t count_ = 0;
-    size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::fstream file_;
-    fs::path filePath_;
+    size_t fileIndex_;
+    fs::path pathCloud_, pathFile_;
+    size_t count_ = 0;
+    size_t countMax_;
+    const size_t countDigits_ = std::floor(std::log10(std::numeric_limits<size_t>::max())) + 1;
     std::streampos countPos_;
-public:
-    CloudStream(const Config& cfg, const std::string& cloudName) {
-        if(!cfg.savePoints()) return;
+private:
+    // TODO: Accept const Config& as a parameter,
+    // include maxPoints as an optional value in the CLI arg parser
+    // if not supplied, use the max representable size_t
+    CloudStream(const fs::path& pathCloud, const size_t maxPoints, const size_t index) : fileIndex_(index), pathCloud_(pathCloud), countMax_(maxPoints) {
+        std::ostringstream cloudName;
+        cloudName << "out_" << index << ".ply";
 
-        const auto [_, pathOut] = cfg.getPaths();
-        filePath_ = pathOut / (cloudName + ".ply");
-        file_ = std::fstream(filePath_, std::ios::in | std::ios::out | 
+        pathFile_ = pathCloud / cloudName.str();
+        
+        file_ = std::fstream(pathFile_, std::ios::in | std::ios::out | 
             std::ios::binary | std::ios::trunc);
+
+        if(!file_.is_open()) {
+            UWARN("Failed to open output PLY file [%s].", pathFile_.c_str());
+            std::exit(1);
+        }
 
         file_ << "ply" << std::endl;
         file_ << "format binary_little_endian 1.0" << std::endl;
@@ -47,8 +56,43 @@ public:
         file_ << "end_header" << std::endl;
     }
 
-    ~CloudStream() {
-        UINFO("Making final modifications to output point cloud [%s].", filePath_.c_str());
+    CloudStream& operator=(CloudStream&& other) noexcept {
+        if(this == &other) return *this;
+
+        file_.close();
+        file_ = std::move(other.file_);
+
+        fileIndex_ = other.fileIndex_;
+
+        pathCloud_ = std::move(other.pathCloud_);
+        pathFile_ = std::move(other.pathFile_);
+
+        count_ = other.count_;
+        countMax_ = other.countMax_;
+        countPos_ = other.countPos_;
+
+        return *this;
+    }
+
+public:
+    CloudStream(const fs::path& pathCloud, const size_t maxPoints) : CloudStream(pathCloud, maxPoints, 0) { /* STUB */ }
+
+    CloudStream(CloudStream&&) = delete;
+    CloudStream(const CloudStream&) = delete;
+    CloudStream& operator=(const CloudStream&) = delete;
+
+    ~CloudStream() { 
+        if(file_.is_open()) CloudStream::close(); 
+    }
+
+public:
+    void close() {
+        if(!file_.is_open()) {
+            UWARN("CloudStream has already been closed.");
+            return;
+        }
+
+        UINFO("Making final modifications to output point cloud [%s].", pathFile_.c_str());
 
         file_.clear();
         file_.seekp(countPos_);
@@ -58,17 +102,28 @@ public:
         file_.close();
     }
 
-    void operator()(const rtabmap::SensorData& sensorData, const rtabmap::Transform& pose) {
-        if(!sensorData.isValid()) return;
+public:
+    friend CloudStream& operator<<(CloudStream& stream, const std::pair<const rtabmap::SensorData&, const rtabmap::Transform&>& frame) {
+        const auto& [sensorData, pose] = frame;
 
-        UINFO("Writing frame to output point cloud [%s].", filePath_.c_str());
+        if(!stream.file_.is_open()) {
+            UWARN("CloudStream is closed, data cannot be written to it.");
+            return stream;
+        }
+
+        if(!sensorData.isValid()) {
+            UWARN("CloudStream received invalid SensorData. Skipping frame.");
+            return stream;
+        }
+
+        UINFO("Writing frame to output point cloud [%s].", stream.pathFile_.c_str());
 
         std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> cloudList = \
             rtabmap::util3d::cloudsRGBFromSensorData(sensorData);
 
         if(cloudList.empty()) {
             UINFO("Frame is empty, skipping.");
-            return;
+            return stream;
         }
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudList[0];
@@ -78,19 +133,25 @@ public:
         pcl::transformPointCloud(*cloud, *cloudGlobal, pose.toEigen3f());
 
         for(const auto& point : cloudGlobal->points) {
-            file_.write(reinterpret_cast<const char*>(&point.x), sizeof(float));
-            file_.write(reinterpret_cast<const char*>(&point.y), sizeof(float));
-            file_.write(reinterpret_cast<const char*>(&point.z), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.x), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.y), sizeof(float));
+            stream.file_.write(reinterpret_cast<const char*>(&point.z), sizeof(float));
 
-            file_.write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
-            file_.write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
-            file_.write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.r), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.g), sizeof(std::uint8_t));
+            stream.file_.write(reinterpret_cast<const char*>(&point.b), sizeof(std::uint8_t));
         }
-        file_.flush();
 
-        count_ += cloudGlobal->points.size();
+        stream.file_.flush();
+        stream.count_ += cloudGlobal->points.size();
 
-        UINFO("Output point cloud [%s] now has [%zu] points.", filePath_.c_str(), count_);      
+        UINFO("Output point cloud [%s] now has [%zu] points.", stream.pathFile_.c_str(), stream.count_);  
+        if(stream.count_ > stream.countMax_) {
+            stream.close();
+            stream = CloudStream(stream.pathCloud_, stream.countMax_, stream.fileIndex_ + 1);
+        }  
+
+        return stream;  
     }
 };
 
