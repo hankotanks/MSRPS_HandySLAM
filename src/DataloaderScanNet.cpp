@@ -120,7 +120,7 @@ bool DataloaderScanNet::processImagesColor() {
 
 bool DataloaderScanNet::processImagesDepth() { 
     const fs::path pathData = cfg_.pathData / "iphone";
-    const fs::path pathDepthTemp = pathData / (cfg_.pathImagesDepth.filename().string() + "_unpacked");
+    const fs::path pathDepthTemp = cfg_.pathTemp / "depth_unpacked";
     const fs::path pathDepthBinary = pathData / "depth.bin";
     if(fs::exists(pathDepthTemp)) {
         UINFO("Using previously unpacked depth frames for upscaling [%s].", pathDepthTemp.c_str());

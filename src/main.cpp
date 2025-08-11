@@ -75,6 +75,10 @@ void run(const Dataloader& data) {
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemSaveDepth16Format(), "true"));
     params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIntermediateNodeDataKept(), "true"));
 
+    // EXPERIMENTAL
+    // params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDLoopClosureReextractFeatures(), "true"));
+    // params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMaxDepth(), "3.5"));
+
     std::optional<std::vector<rtabmap::IMUEvent>> eventsOpt = data.parseEvents();
     std::vector<rtabmap::IMUEvent> events;
     if(eventsOpt) events = std::move(*eventsOpt);
